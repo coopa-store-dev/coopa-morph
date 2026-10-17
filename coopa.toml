@@ -1,0 +1,11 @@
+id = "morph"
+name = "库巴变变变"
+version = "0.1.0"
+sdk = 5
+kit_api = 2
+app = "morph_app"
+milestones = [
+  "第一次变身",
+  "第一次合体技",
+  "打倒发条铁皮熊",
+]

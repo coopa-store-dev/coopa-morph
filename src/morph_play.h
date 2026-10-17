@@ -3,7 +3,7 @@
 //
 // 各算各的人:自己的人每 10 ms(关卡时钟)走一步;按键、落地、站住、掉坑、接着走的时候,把它的完整状态
 // 连同「这是关卡时钟哪一刻的」发给对方,没事每 MP_SYNC_MS 补一条。对方拿这 6 样(x y vy dir st flaps)
-// 用同一套 mb_step 从那一刻算到自己的 clock,就是一模一样的人。
+// 用同一套 morph_mb_step 从那一刻算到自己的 clock,就是一模一样的人。
 //
 // 关卡时钟:主动方说了算。被连方收到 'G' 先照抄(晚了一个单程),马上 ping,第一次回来直接对上,
 // 以后每次最多挪 MP_NUDGE_MS,差超过 MP_JUMP_MS 直接跳;来回比平时长一半以上(路上卡了一下)的那次不对。
@@ -58,7 +58,7 @@ typedef struct {
     uint16_t rtt;               // 平滑来回(毫秒),0 = 还没量
     uint32_t tx, rx, refused;   // 统计:交出去几条、收到几条、send 被拒几次(测试和状态行用)
 
-    uint8_t proto;              // 自己说的协议版本(mp_init 设成 MP_PROTO;测试改它模拟版本不一样的卡)
+    uint8_t proto;              // 自己说的协议版本(morph_mp_init 设成 MP_PROTO;测试改它模拟版本不一样的卡)
     bool hello;                 // 这次连接对方的 'H' 版本对上了
     uint32_t now;               // 毫秒,一直走(链路计时用;clock 会停、会挪)
     uint32_t me_at, peer_at;    // me / peer 是关卡时钟哪一刻的状态(10 ms 的整数倍)
@@ -76,9 +76,9 @@ typedef struct {
     bool ans; uint8_t ans_id; uint32_t ans_at;                     // 主动方:要回的 'A'、收到 'Q' 的时刻(now)
 } morph_play_t;
 
-void mp_init(morph_play_t *p, mp_send_fn send, void *ctx, const morph_level_t *L);
-void mp_connected(morph_play_t *p, bool initiator);   // 新的一次连接
-void mp_lost(morph_play_t *p);                        // 断了 → MP_PAUSED
-void mp_on_msg(morph_play_t *p, const uint8_t *m, size_t n);
-void mp_tick(morph_play_t *p, uint32_t dt_ms);        // 推时钟、走自己的人、重建对方、交消息
-void mp_key(morph_play_t *p, uint8_t key);            // morph_key_t,自己的
+void morph_mp_init(morph_play_t *p, mp_send_fn send, void *ctx, const morph_level_t *L);
+void morph_mp_connected(morph_play_t *p, bool initiator);   // 新的一次连接
+void morph_mp_lost(morph_play_t *p);                        // 断了 → MP_PAUSED
+void morph_mp_on_msg(morph_play_t *p, const uint8_t *m, size_t n);
+void morph_mp_tick(morph_play_t *p, uint32_t dt_ms);        // 推时钟、走自己的人、重建对方、交消息
+void morph_mp_key(morph_play_t *p, uint8_t key);            // morph_key_t,自己的

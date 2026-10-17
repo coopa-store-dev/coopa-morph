@@ -104,7 +104,7 @@ static void stats(uint32_t dt) {
 
 static void drop_view(void) {
     if (!s_view) return;
-    mv_destroy();
+    morph_mv_destroy();
     s_view = false;
 }
 
@@ -171,7 +171,7 @@ static void show_game(void) {
     drop_view();
     s_note[0] = 0;
     lv_obj_t *scr = uk_screen_new(UK_WALL);
-    mv_create(scr, s_play.L, me, me == CH_KID ? CH_DAD : CH_KID);
+    morph_mv_create(scr, s_play.L, me, me == CH_KID ? CH_DAD : CH_KID);
     uk_screen_swap(scr);
     s_view = true;
     s_view_me = me;
@@ -186,7 +186,7 @@ static void to_title(void) {
 }
 
 static void to_link(void) {
-    mp_init(&s_play, link_send, NULL, &morph_level_test);
+    morph_mp_init(&s_play, link_send, NULL, &morph_level_test);
     s_up = false;
     s_page = PG_LINK;
     s_note[0] = 0;
@@ -196,7 +196,7 @@ static void to_link(void) {
 static void to_solo(void) {
     kit_link_stop();
     s_up = false;
-    mp_init(&s_play, NULL, NULL, &morph_level_test);
+    morph_mp_init(&s_play, NULL, NULL, &morph_level_test);
     drop_view();  // 重建:摄像机直接对上出生点
     s_page = PG_GAME;
 }
@@ -208,16 +208,16 @@ static void link_frame(uint32_t dt) {
         if (!s_up || kit_link_session() != s_session) {
             s_up = true;
             s_session = kit_link_session();
-            mp_connected(&s_play, kit_link_initiator());
+            morph_mp_connected(&s_play, kit_link_initiator());
         }
         uint8_t msg[KIT_LINK_MSG_MAX];
         size_t n;
-        while ((n = kit_link_recv(msg, sizeof(msg))) > 0) mp_on_msg(&s_play, msg, n);
+        while ((n = kit_link_recv(msg, sizeof(msg))) > 0) morph_mp_on_msg(&s_play, msg, n);
     } else if (s_up) {
         s_up = false;
-        mp_lost(&s_play);
+        morph_mp_lost(&s_play);
     }
-    mp_tick(&s_play, dt);
+    morph_mp_tick(&s_play, dt);
 }
 
 static void morph_enter(const kit_links_t *links) {
@@ -236,7 +236,7 @@ static void morph_leave(void) {
 static bool morph_input(const kit_input_t *in) {
     if (s_page == PG_GAME) {
         int k = morph_key_of((uint8_t)in->key, in->long_press);
-        if (k >= 0) mp_key(&s_play, (uint8_t)k);
+        if (k >= 0) morph_mp_key(&s_play, (uint8_t)k);
         return false;
     }
     if (in->long_press) return false;
@@ -257,7 +257,7 @@ static bool morph_input(const kit_input_t *in) {
 static void morph_frame(uint32_t dt) {
     stats(dt);
     if (s_page == PG_TITLE) return;
-    if (s_play.solo) mp_tick(&s_play, dt);
+    if (s_play.solo) morph_mp_tick(&s_play, dt);
     else link_frame(dt);
     if (s_play.phase == MP_WAIT) {  // 还在找、还在对暗号
         s_page = PG_LINK;
@@ -266,7 +266,7 @@ static void morph_frame(uint32_t dt) {
     }
     s_page = PG_GAME;
     show_game();
-    mv_update(&s_play, dt);
+    morph_mv_update(&s_play, dt);
 }
 
 // 在关卡里走着不熄屏;断线等队友时照常熄(连着的时候外壳本来就不熄)
@@ -278,11 +278,11 @@ static kit_admin_t morph_admin(int cmd, bool active) {
         case 'a': to_solo(); break;
         case 'b':
             s_cam = s_cam >= 8 ? 1 : (uint8_t)(s_cam * 2);
-            mv_set_cam_step(s_cam);
+            morph_mv_set_cam_step(s_cam);
             break;
         case 'c':
             s_decor = !s_decor;
-            mv_set_decor(s_decor);
+            morph_mv_set_decor(s_decor);
             break;
         default: return KIT_ADMIN_NOT_MINE;
     }
@@ -300,7 +300,7 @@ static size_t morph_status(char *buf, size_t len) {
                      (int)s_page, (unsigned)p->phase, (unsigned)p->solo, (unsigned)p->initiator, px(p->me.x),
                      px(p->me.y), (unsigned)p->me.st, (int)p->me.dir, px(p->peer.x), px(p->peer.y),
                      (unsigned)p->peer.st, (unsigned long)p->clock, (unsigned)p->rtt, (unsigned)s_dt_avg,
-                     (unsigned)s_dt_max, (unsigned)mv_obj_count(), (unsigned)s_cam, (unsigned long)p->tx,
+                     (unsigned)s_dt_max, (unsigned)morph_mv_obj_count(), (unsigned)s_cam, (unsigned long)p->tx,
                      (unsigned long)p->rx, (unsigned long)p->refused, (unsigned long)s_draw_avg_us,
                      (unsigned long)s_draw_max_us);
     return n < 0 ? 0 : ((size_t)n < len ? (size_t)n : len - 1);

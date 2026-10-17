@@ -54,12 +54,12 @@ static uint16_t count(lv_obj_t *o) {
 // (col, row) 这一格画哪张图;NONE = 不画。实心格:底下一路实心到底的是地面(最上面那格是地面顶),否则是悬空的砖
 static uint8_t cell_img(int col, int row) {
     if (col < 0 || col >= s_L->cols) return NONE;  // 关卡外(摄像机不出关卡,不画)
-    morph_tile_t t = ml_tile(s_L, col, row);
+    morph_tile_t t = morph_ml_tile(s_L, col, row);
     if (t == MT_EMPTY) return NONE;
     if (t == MT_PLAT) return MT_IMG_PLAT;
     for (int r = row + 1; r < ML_ROWS; r++)
-        if (ml_tile(s_L, col, r) != MT_SOLID) return MT_IMG_BRICK;
-    return ml_tile(s_L, col, row - 1) == MT_SOLID ? MT_IMG_FILL : MT_IMG_TOP;
+        if (morph_ml_tile(s_L, col, r) != MT_SOLID) return MT_IMG_BRICK;
+    return morph_ml_tile(s_L, col, row - 1) == MT_SOLID ? MT_IMG_FILL : MT_IMG_TOP;
 }
 
 static int add(seg_t *w, int n, int x, int y, int wd, int ht, uint8_t img) {
@@ -90,11 +90,11 @@ static int visible(seg_t *w, int c0, int c1) {
     for (int c = c0 - DECOR_L; c <= c1; c++) {
         if (c < 0 || c >= s_L->cols) continue;
         int row = (c / CLOUD_EVERY) % 2;  // 云在第 0 / 1 行,那两格空着才放
-        if (c % CLOUD_EVERY == 2 && ml_tile(s_L, c, row) == MT_EMPTY && ml_tile(s_L, c + 1, row) == MT_EMPTY)
+        if (c % CLOUD_EVERY == 2 && morph_ml_tile(s_L, c, row) == MT_EMPTY && morph_ml_tile(s_L, c + 1, row) == MT_EMPTY)
             n = add(w, n, c * ML_TILE, row * ML_TILE + 4, cloud->header.w, cloud->header.h, MT_IMG_CLOUD);
         if (c % BUSH_EVERY == 3) {
             int r = 0;
-            while (r < ML_ROWS && ml_tile(s_L, c, r) == MT_EMPTY) r++;
+            while (r < ML_ROWS && morph_ml_tile(s_L, c, r) == MT_EMPTY) r++;
             if (r > 0 && r < ML_ROWS && cell_img(c, r) == MT_IMG_TOP)
                 n = add(w, n, c * ML_TILE, r * ML_TILE - bush->header.h, bush->header.w, bush->header.h, MT_IMG_BUSH);
         }
@@ -199,8 +199,8 @@ static void place(int i, const morph_body_t *b, bool on) {
     pos(o, fdiv(b->x, MB_SUB) - FIG / 2, fdiv(b->y, MB_SUB) - FIG * 3 / 2);
 }
 
-void mv_create(lv_obj_t *parent, const morph_level_t *L, uint8_t me_ch, uint8_t peer_ch) {
-    mv_destroy();
+void morph_mv_create(lv_obj_t *parent, const morph_level_t *L, uint8_t me_ch, uint8_t peer_ch) {
+    morph_mv_destroy();
     s_L = L;
     s_ch[ME] = me_ch;
     s_ch[PEER] = peer_ch;
@@ -223,7 +223,7 @@ void mv_create(lv_obj_t *parent, const morph_level_t *L, uint8_t me_ch, uint8_t 
     s_objs = count(s_parent);
 }
 
-void mv_update(const morph_play_t *p, uint32_t dt_ms) {
+void morph_mv_update(const morph_play_t *p, uint32_t dt_ms) {
     if (!s_root) return;
     camera(&p->me, dt_ms);
     s_fresh = false;
@@ -235,7 +235,7 @@ void mv_update(const morph_play_t *p, uint32_t dt_ms) {
     s_objs = count(s_parent);
 }
 
-void mv_destroy(void) {
+void morph_mv_destroy(void) {
     if (s_root) lv_obj_delete(s_root);
     s_root = s_state = s_world = s_wait = s_parent = NULL;
     s_fig[0] = s_fig[1] = NULL;
@@ -245,12 +245,12 @@ void mv_destroy(void) {
     s_objs = 0;
 }
 
-void mv_set_cam_step(uint8_t px) { s_step = px ? px : 1; }
+void morph_mv_set_cam_step(uint8_t px) { s_step = px ? px : 1; }
 
-void mv_set_decor(bool on) {
+void morph_mv_set_decor(bool on) {
     if (on == s_decor) return;
     s_decor = on;
     s_c0 = s_c1 = -1;  // 下一帧重摆
 }
 
-uint16_t mv_obj_count(void) { return s_objs; }
+uint16_t morph_mv_obj_count(void) { return s_objs; }

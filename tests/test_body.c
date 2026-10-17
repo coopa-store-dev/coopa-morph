@@ -15,14 +15,14 @@ static const morph_level_t *L = &morph_level_test;
 
 static unsigned run_ms(morph_body_t *b, const morph_level_t *lv, uint32_t ms) {
     uint32_t acc = 0;
-    return mb_run(b, lv, ms, &acc);
+    return morph_mb_run(b, lv, ms, &acc);
 }
 
 // 一步一步走,直到返回里有 want 的某一位(最多 max_ms);返回这一路所有事件的组合
 static unsigned run_until(morph_body_t *b, const morph_level_t *lv, unsigned want, uint32_t max_ms) {
     unsigned all = 0;
     for (uint32_t t = 0; t < max_ms; t += MB_STEP_MS) {
-        unsigned ev = mb_step(b, lv);
+        unsigned ev = morph_mb_step(b, lv);
         all |= ev;
         if (ev & want) break;
     }
@@ -31,7 +31,7 @@ static unsigned run_until(morph_body_t *b, const morph_level_t *lv, unsigned wan
 
 static void t_walk(void) {
     morph_body_t b;
-    mb_init(&b, 80, 224, 1);
+    morph_mb_init(&b, 80, 224, 1);
     int32_t x0 = b.x;
     run_ms(&b, L, 1000);
     CHECK(b.st == MB_WALK);
@@ -41,10 +41,10 @@ static void t_walk(void) {
 
 static void t_turn(void) {
     morph_body_t b;
-    mb_init(&b, 80, 224, 1);
+    morph_mb_init(&b, 80, 224, 1);
     run_ms(&b, L, 200);
     int32_t xt = b.x;
-    mb_key(&b, L, MK_TURN);
+    morph_mb_key(&b, L, MK_TURN);
     CHECK(b.dir == -1);
     run_ms(&b, L, 500);
     CHECK(b.x < xt);
@@ -52,7 +52,7 @@ static void t_turn(void) {
 
 static void t_edge(void) {
     morph_body_t b;
-    mb_init(&b, 80, 224, 1);
+    morph_mb_init(&b, 80, 224, 1);
     unsigned ev = run_until(&b, L, MB_EV_STOP, 10000);
     CHECK(ev & MB_EV_STOP);
     CHECK(b.st == MB_EDGE);
@@ -64,14 +64,14 @@ static void t_edge(void) {
     CHECK(b.x == xe && b.st == MB_EDGE);
     CHECK(!(ev & (MB_EV_PIT | MB_EV_STOP | MB_EV_GO)));
     // 停着的掉头后接着走
-    mb_key(&b, L, MK_TURN);
+    morph_mb_key(&b, L, MK_TURN);
     run_ms(&b, L, 200);
     CHECK(b.st == MB_WALK && b.x < xe);
 }
 
 static void t_step_down(void) {
     morph_body_t b;
-    mb_init(&b, 29 * 32 + 16, 192, 1);   // 一格台阶顶上,朝右
+    morph_mb_init(&b, 29 * 32 + 16, 192, 1);   // 一格台阶顶上,朝右
     unsigned ev = run_until(&b, L, MB_EV_LAND, 3000);
     CHECK(ev & MB_EV_LAND);
     CHECK(!(ev & (MB_EV_STOP | MB_EV_PIT)));
@@ -82,7 +82,7 @@ static void t_step_down(void) {
 static void t_wall(void) {
     morph_body_t b;
     // 两格高的墙(34 列)
-    mb_init(&b, 31 * 32 + 16, 224, 1);
+    morph_mb_init(&b, 31 * 32 + 16, 224, 1);
     unsigned ev = run_until(&b, L, MB_EV_STOP, 5000);
     CHECK(ev & MB_EV_STOP);
     CHECK(b.st == MB_WALL);
@@ -90,12 +90,12 @@ static void t_wall(void) {
     run_ms(&b, L, 1000);
     CHECK(b.st == MB_WALL && b.x + PX(MB_W / 2) == PX(34 * 32));
     // 一格高的台阶(28 列)
-    mb_init(&b, 25 * 32 + 16, 224, 1);
+    morph_mb_init(&b, 25 * 32 + 16, 224, 1);
     ev = run_until(&b, L, MB_EV_STOP, 5000);
     CHECK(ev & MB_EV_STOP);
     CHECK(b.st == MB_WALL);
     CHECK(b.x + PX(MB_W / 2) == PX(28 * 32));
-    mb_key(&b, L, MK_JUMP);
+    morph_mb_key(&b, L, MK_JUMP);
     CHECK(b.st == MB_AIR);
     ev = run_until(&b, L, MB_EV_LAND, 3000);
     CHECK(ev & MB_EV_LAND);
@@ -104,12 +104,12 @@ static void t_wall(void) {
 
 // 从坑边起跳,flap_ms > 0 时每隔 flap_ms 扑腾一下、扑满 MB_FLAPS 下;返回落地或掉坑之前所有事件
 static unsigned jump_from_edge(morph_body_t *b, uint32_t flap_ms) {
-    mb_key(b, L, MK_JUMP);
+    morph_mb_key(b, L, MK_JUMP);
     unsigned ev = 0;
     if (flap_ms)
         for (int i = 0; i < MB_FLAPS; i++) {
             ev |= run_ms(b, L, flap_ms);
-            mb_key(b, L, MK_JUMP);
+            morph_mb_key(b, L, MK_JUMP);
         }
     return ev | run_until(b, L, MB_EV_LAND | MB_EV_PIT, 15000);
 }
@@ -117,7 +117,7 @@ static unsigned jump_from_edge(morph_body_t *b, uint32_t flap_ms) {
 static void t_jump_pits(void) {
     morph_body_t b;
     // 一格坑:不扑腾过得去
-    mb_init(&b, 80, 224, 1);
+    morph_mb_init(&b, 80, 224, 1);
     run_until(&b, L, MB_EV_STOP, 10000);
     CHECK(b.st == MB_EDGE);
     unsigned ev = jump_from_edge(&b, 0);
@@ -126,7 +126,7 @@ static void t_jump_pits(void) {
     CHECK(b.y == GROUND && b.x > PX(11 * 32 - MB_W / 2));
 
     // 三格坑:不扑腾过不去,掉下去回到坑边
-    mb_init(&b, 18 * 32 + 16, 224, 1);
+    morph_mb_init(&b, 18 * 32 + 16, 224, 1);
     run_until(&b, L, MB_EV_STOP, 10000);
     CHECK(b.st == MB_EDGE);
     int32_t ex = b.x, ey = b.y;
@@ -138,7 +138,7 @@ static void t_jump_pits(void) {
     CHECK(b.st != MB_AIR);
 
     // 三格坑:每隔 250 ms 扑腾,扑满 5 下 → 过得去
-    mb_init(&b, 18 * 32 + 16, 224, 1);
+    morph_mb_init(&b, 18 * 32 + 16, 224, 1);
     run_until(&b, L, MB_EV_STOP, 10000);
     ev = jump_from_edge(&b, 250);
     CHECK(ev & MB_EV_LAND);
@@ -148,13 +148,13 @@ static void t_jump_pits(void) {
 
 static void t_flap_cap(void) {
     morph_body_t b;
-    mb_init(&b, 80, 224, 1);
-    mb_key(&b, L, MK_JUMP);
+    morph_mb_init(&b, 80, 224, 1);
+    morph_mb_key(&b, L, MK_JUMP);
     for (int i = 0; i < 8; i++) {
         run_ms(&b, L, 100);
         CHECK(b.st == MB_AIR);
         int16_t vy0 = b.vy;
-        mb_key(&b, L, MK_JUMP);
+        morph_mb_key(&b, L, MK_JUMP);
         if (i < MB_FLAPS) {
             CHECK(b.flaps == i + 1);
             CHECK(b.vy < 0);
@@ -168,8 +168,8 @@ static void t_flap_cap(void) {
 
 static void t_platform(void) {
     morph_body_t b;
-    mb_init(&b, 40 * 32 + 16, 224, 1);   // 单向平台(40-43 列,顶 y = 160)正下方
-    mb_key(&b, L, MK_JUMP);
+    morph_mb_init(&b, 40 * 32 + 16, 224, 1);   // 单向平台(40-43 列,顶 y = 160)正下方
+    morph_mb_key(&b, L, MK_JUMP);
     unsigned ev = run_until(&b, L, MB_EV_LAND, 3000);
     CHECK(ev & MB_EV_LAND);
     CHECK(b.y == PX(160) && b.st == MB_WALK);
@@ -181,30 +181,30 @@ static void t_platform(void) {
 static void t_big_dt(void) {
     morph_body_t a, b;
     uint32_t acc_a = 0, acc_b = 0;
-    mb_init(&a, 80, 224, 1);
-    mb_key(&a, L, MK_JUMP);
+    morph_mb_init(&a, 80, 224, 1);
+    morph_mb_key(&a, L, MK_JUMP);
     b = a;
-    mb_run(&a, L, 100, &acc_a);
-    for (int i = 0; i < 10; i++) mb_run(&b, L, 10, &acc_b);
+    morph_mb_run(&a, L, 100, &acc_a);
+    for (int i = 0; i < 10; i++) morph_mb_run(&b, L, 10, &acc_b);
     CHECK(memcmp(&a, &b, sizeof a) == 0);
     CHECK(acc_a == 0 && acc_b == 0);
     // 不整 10 ms 的余数留在 acc 里
-    mb_run(&a, L, 25, &acc_a);
+    morph_mb_run(&a, L, 25, &acc_a);
     CHECK(acc_a == 5);
-    mb_run(&a, L, 5, &acc_a);
+    morph_mb_run(&a, L, 5, &acc_a);
     CHECK(acc_a == 0);
-    for (int i = 0; i < 3; i++) mb_run(&b, L, 10, &acc_b);
+    for (int i = 0; i < 3; i++) morph_mb_run(&b, L, 10, &acc_b);
     CHECK(memcmp(&a, &b, sizeof a) == 0);
 
     // 在最高处往下落,一次 100 ms 也停在地面上
-    mb_init(&a, 80, 224, 1);
-    mb_key(&a, L, MK_JUMP);
-    for (int i = 0; i < 300 && a.vy < 0; i++) mb_step(&a, L);
+    morph_mb_init(&a, 80, 224, 1);
+    morph_mb_key(&a, L, MK_JUMP);
+    for (int i = 0; i < 300 && a.vy < 0; i++) morph_mb_step(&a, L);
     CHECK(a.vy >= 0 && a.st == MB_AIR);
     acc_a = 0;
     unsigned ev = 0;
     for (int i = 0; i < 20 && a.st == MB_AIR; i++) {
-        ev |= mb_run(&a, L, 100, &acc_a);
+        ev |= morph_mb_run(&a, L, 100, &acc_a);
         CHECK(a.y <= GROUND);
     }
     CHECK(ev & MB_EV_LAND);
@@ -217,17 +217,17 @@ static morph_body_t det_log[2][DET_STEPS];
 static void det_run(morph_body_t *log) {
     uint32_t seed = 12345u;
     morph_body_t b;
-    mb_init(&b, 80, 224, 1);
+    morph_mb_init(&b, 80, 224, 1);
     uint32_t next = 0;
     for (int i = 0; i < DET_STEPS; i++) {
         uint32_t t = (uint32_t)i * MB_STEP_MS;
         if (t >= next) {
             seed = seed * 1103515245u + 12345u;
-            mb_key(&b, L, (seed >> 16) & 1 ? MK_JUMP : MK_TURN);
+            morph_mb_key(&b, L, (seed >> 16) & 1 ? MK_JUMP : MK_TURN);
             seed = seed * 1103515245u + 12345u;
             next = t + 200 + (seed >> 16) % 401;
         }
-        mb_step(&b, L);
+        morph_mb_step(&b, L);
         log[i] = b;
     }
 }
@@ -253,25 +253,25 @@ static void t_go(void) {
     morph_level_t lv = morph_level_test;
     lv.tiles = tiles;
     morph_body_t b;
-    mb_init(&b, 80, 224, 1);
+    morph_mb_init(&b, 80, 224, 1);
     run_until(&b, &lv, MB_EV_STOP, 10000);
     CHECK(b.st == MB_EDGE);
     tiles[7 * W + 10] = MT_SOLID;   // 坑填上了
-    unsigned ev = mb_step(&b, &lv);
+    unsigned ev = morph_mb_step(&b, &lv);
     CHECK(ev & MB_EV_GO);
     CHECK(b.st == MB_WALK);
     tiles[6 * W + 13] = MT_SOLID;   // 前面多了一块
     ev = run_until(&b, &lv, MB_EV_STOP, 5000);
     CHECK(b.st == MB_WALL);
     tiles[6 * W + 13] = MT_EMPTY;   // 又没了
-    ev = mb_step(&b, &lv);
+    ev = morph_mb_step(&b, &lv);
     CHECK(ev & MB_EV_GO);
     CHECK(b.st == MB_WALK);
 }
 
 // 另一张卡只收到 x y vy dir st flaps:拿这几样重建的人,往后按同样的键走,每一步都一样。
 static void copy_sent(morph_body_t *dst, const morph_body_t *src) {
-    mb_init(dst, 0, 0, 1);
+    morph_mb_init(dst, 0, 0, 1);
     dst->x = src->x; dst->y = src->y; dst->vy = src->vy;
     dst->dir = src->dir; dst->st = src->st; dst->flaps = src->flaps;
 }
@@ -288,10 +288,10 @@ static int8_t rb_key[RB_STEPS];          // 这一步之前按的键,-1 = 没按
 static void t_rebuild(void) {
     // 直接的例子:三格坑不扑腾,半空中重建,两个都回到同一个坑边
     morph_body_t a, b;
-    mb_init(&a, 18 * 32 + 16, 224, 1);
+    morph_mb_init(&a, 18 * 32 + 16, 224, 1);
     run_until(&a, L, MB_EV_STOP, 10000);
     int32_t ex = a.x;
-    mb_key(&a, L, MK_JUMP);
+    morph_mb_key(&a, L, MK_JUMP);
     run_ms(&a, L, 600);
     CHECK(a.st == MB_AIR && a.x > PX(21 * 32));   // 在坑上空
     copy_sent(&b, &a);
@@ -317,20 +317,20 @@ static void t_rebuild(void) {
         }
     }
     morph_body_t orig;
-    mb_init(&orig, 18 * 32 + 16, 224, 1);
+    morph_mb_init(&orig, 18 * 32 + 16, 224, 1);
     int points = 0, air_points = 0, pits = 0, diverged = 0;
     for (int i = 0; i < 30000 / MB_STEP_MS; i++) {
-        if (rb_key[i] >= 0) mb_key(&orig, L, (uint8_t)rb_key[i]);
-        mb_step(&orig, L);
+        if (rb_key[i] >= 0) morph_mb_key(&orig, L, (uint8_t)rb_key[i]);
+        morph_mb_step(&orig, L);
         if (((i + 1) * MB_STEP_MS) / 137 == (i * MB_STEP_MS) / 137) continue;
         points++;
         if (orig.st == MB_AIR) air_points++;
         a = orig;
         copy_sent(&b, &orig);
         for (int j = i + 1; j < i + 1 + RB_AFTER; j++) {
-            if (rb_key[j] >= 0) { mb_key(&a, L, (uint8_t)rb_key[j]); mb_key(&b, L, (uint8_t)rb_key[j]); }
-            unsigned ev = mb_step(&a, L);
-            mb_step(&b, L);
+            if (rb_key[j] >= 0) { morph_mb_key(&a, L, (uint8_t)rb_key[j]); morph_mb_key(&b, L, (uint8_t)rb_key[j]); }
+            unsigned ev = morph_mb_step(&a, L);
+            morph_mb_step(&b, L);
             if (ev & MB_EV_PIT) pits++;
             if (!same_sent(&a, &b)) { diverged++; break; }
         }

@@ -40,8 +40,8 @@ static void pipe_reset(pipe_t *p) {
 
 void duo_init(void) {
     memset(&D, 0, sizeof D);
-    mp_init(&D.a, duo_send, &D.ab, &morph_level_test);
-    mp_init(&D.b, duo_send, &D.ba, &morph_level_test);
+    morph_mp_init(&D.a, duo_send, &D.ab, &morph_level_test);
+    morph_mp_init(&D.b, duo_send, &D.ba, &morph_level_test);
     D.ab.cap = D.ba.cap = 8;
 }
 
@@ -49,16 +49,16 @@ void duo_connect(void) {
     pipe_reset(&D.ab);
     pipe_reset(&D.ba);
     D.ab.up = D.ba.up = true;
-    mp_connected(&D.a, true);
-    mp_connected(&D.b, false);
+    morph_mp_connected(&D.a, true);
+    morph_mp_connected(&D.b, false);
 }
 
 void duo_drop(void) {
     D.ab.up = D.ba.up = false;
     pipe_reset(&D.ab);
     pipe_reset(&D.ba);
-    mp_lost(&D.a);
-    mp_lost(&D.b);
+    morph_mp_lost(&D.a);
+    morph_mp_lost(&D.b);
 }
 
 void duo_delay(uint32_t ms, uint32_t jitter) {
@@ -92,7 +92,7 @@ static bool deliver(pipe_t *p, const pipe_t *back, morph_play_t *to) {
     p->ready = at + back->delay;  // 确认走回来,下一片才出发
     p->msgs[m[0] & 127]++;
     if (m[0] == 'B') memcpy(p->last_b, m, len);
-    mp_on_msg(to, m, len);
+    morph_mp_on_msg(to, m, len);
     return true;
 }
 
@@ -106,8 +106,8 @@ void flow(void) {
 
 void duo_step(void) {
     D.now += 10;
-    mp_tick(&D.a, 10);
-    mp_tick(&D.b, 10);
+    morph_mp_tick(&D.a, 10);
+    morph_mp_tick(&D.b, 10);
     flow();
 }
 
@@ -118,6 +118,6 @@ void run(uint32_t ms) {
 morph_play_t *side(int s) { return s ? &D.b : &D.a; }
 
 void press(int s, uint8_t key) {
-    mp_key(side(s), key);
+    morph_mp_key(side(s), key);
     flow();
 }

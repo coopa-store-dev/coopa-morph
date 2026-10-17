@@ -58,7 +58,7 @@ static int lag_steps(void) { return (int)(clock_diff() / 10 + 1); }
 static bool pit_soon(const morph_body_t *b) {
     morph_body_t c = *b;
     for (int i = 0; i < lag_steps(); i++)
-        if (mb_step(&c, L) & MB_EV_PIT) return true;
+        if (morph_mb_step(&c, L) & MB_EV_PIT) return true;
     return false;
 }
 
@@ -227,30 +227,30 @@ static void t_events(void) {
 
 static void t_solo(void) {
     morph_play_t p;
-    mp_init(&p, NULL, NULL, L);
+    morph_mp_init(&p, NULL, NULL, L);
     CHECK(p.solo && p.phase == MP_PLAY);
     int32_t x0 = p.me.x;
-    for (int i = 0; i < 50; i++) mp_tick(&p, 10);
+    for (int i = 0; i < 50; i++) morph_mp_tick(&p, 10);
     CHECK(p.clock == 500);
     CHECK(p.me.x > x0 && p.me.st == MB_WALK);
-    mp_key(&p, MK_JUMP);
+    morph_mp_key(&p, MK_JUMP);
     CHECK(p.me.st == MB_AIR);
-    for (int i = 0; i < 10; i++) mp_tick(&p, 10);
+    for (int i = 0; i < 10; i++) morph_mp_tick(&p, 10);
     CHECK(p.me.y < L->spawn_y * MB_SUB);
-    mp_key(&p, MK_TURN);
+    morph_mp_key(&p, MK_TURN);
     CHECK(p.me.dir == -1);
-    for (int i = 0; i < 200; i++) mp_tick(&p, 10);
+    for (int i = 0; i < 200; i++) morph_mp_tick(&p, 10);
     CHECK(!p.peer_ok);
     CHECK(p.tx == 0);
     // 时间按任意步长给也照样每 10 ms 一步
     morph_play_t q;
-    mp_init(&q, NULL, NULL, L);
-    for (int i = 0; i < 100; i++) mp_tick(&q, 7);
+    morph_mp_init(&q, NULL, NULL, L);
+    for (int i = 0; i < 100; i++) morph_mp_tick(&q, 7);
     CHECK(q.clock == 700);
     morph_body_t b;
-    mb_init(&b, L->spawn_x, L->spawn_y, 1);
+    morph_mb_init(&b, L->spawn_x, L->spawn_y, 1);
     uint32_t acc = 0;
-    mb_run(&b, L, 700, &acc);
+    morph_mb_run(&b, L, 700, &acc);
     CHECK(same(&q.me, &b));
 }
 
@@ -301,7 +301,7 @@ static void t_restart(void) {
     }
     uint32_t clock = D.a.clock;
     duo_drop();
-    mp_init(&D.b, duo_send, &D.ba, L);   // 对方重启
+    morph_mp_init(&D.b, duo_send, &D.ba, L);   // 对方重启
     run(2000);
     duo_connect();
     for (int t = 0; t < 1000 && (D.a.phase != MP_PLAY || D.b.phase != MP_PLAY); t += 10) duo_step();
@@ -330,9 +330,9 @@ static void t_stale(void) {
     CHECK(D.ba.last_b[1] != old[1]);   // 后来又收到过新的
     morph_body_t peer = D.a.peer;
     uint32_t at = D.a.peer_at;
-    mp_on_msg(&D.a, old, MP_B_LEN);
+    morph_mp_on_msg(&D.a, old, MP_B_LEN);
     CHECK(same(&D.a.peer, &peer) && D.a.peer_at == at);
-    mp_on_msg(&D.a, D.ba.last_b, MP_B_LEN);   // 同一条再来一次也不要
+    morph_mp_on_msg(&D.a, D.ba.last_b, MP_B_LEN);   // 同一条再来一次也不要
     CHECK(same(&D.a.peer, &peer) && D.a.peer_at == at);
 }
 
@@ -341,20 +341,20 @@ static void t_future(void) {
     begin(70, 20);
     run(1000);
     morph_body_t s;
-    mb_init(&s, 120, 224, 1);   // 平地上往右走
+    morph_mb_init(&s, 120, 224, 1);   // 平地上往右走
     uint8_t m[MP_MSG_MAX];
     pack_b(m, (uint8_t)(D.a.rx_seq + 1), D.a.clock + 200, &s);
-    mp_on_msg(&D.a, m, MP_B_LEN);
+    morph_mp_on_msg(&D.a, m, MP_B_LEN);
     CHECK(D.a.peer_ok && same(&D.a.peer, &s));
     // 只推 a(不送 b 的消息):这 200 ms 里一直是那条状态
     for (int i = 0; i < 20; i++) {
-        mp_tick(&D.a, 10);
+        morph_mp_tick(&D.a, 10);
         CHECK(same(&D.a.peer, &s));
     }
     // 之后接着往前算
-    for (int i = 0; i < 10; i++) mp_tick(&D.a, 10);
+    for (int i = 0; i < 10; i++) morph_mp_tick(&D.a, 10);
     morph_body_t want = s;
-    for (int i = 0; i < 10; i++) mb_step(&want, L);
+    for (int i = 0; i < 10; i++) morph_mb_step(&want, L);
     CHECK(same(&D.a.peer, &want));
     CHECK(D.a.peer.x > s.x);
 }
@@ -369,7 +369,7 @@ static void t_garbage(void) {
         size_t n = test_rnd() % (MP_MSG_MAX + 1);
         for (size_t k = 0; k < n; k++) m[k] = (uint8_t)test_rnd();
         if (n && test_rnd() % 4) m[0] = types[test_rnd() % sizeof types];
-        mp_on_msg(test_rnd() % 2 ? &D.a : &D.b, m, n);
+        morph_mp_on_msg(test_rnd() % 2 ? &D.a : &D.b, m, n);
         if (i % 10 == 0) duo_step();
     }
     run(1000);

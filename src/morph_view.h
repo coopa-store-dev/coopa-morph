@@ -18,11 +18,11 @@
 #define MV_HINT_Y (MV_BAR_H + MV_LEVEL_H)   // 底下提示行从 284 开始
 #define MV_CAM_V 160                        // 摄像机最快多少像素/秒
 
-// 在 parent(一个空屏)上建画面;已经建着的先 mv_destroy。me_ch / peer_ch:0 库巴、1 爸爸。
-void mv_create(lv_obj_t *parent, const morph_level_t *L, uint8_t me_ch, uint8_t peer_ch);
-void mv_update(const morph_play_t *p, uint32_t dt_ms);
+// 在 parent(一个空屏)上建画面;已经建着的先 morph_mv_destroy。me_ch / peer_ch:0 库巴、1 爸爸。
+void morph_mv_create(lv_obj_t *parent, const morph_level_t *L, uint8_t me_ch, uint8_t peer_ch);
+void morph_mv_update(const morph_play_t *p, uint32_t dt_ms);
 // 删掉画面的对象(屏幕本身不删)。没建也可以调。换屏之前、离开游戏之前都要调。
-void mv_destroy(void);
-void mv_set_cam_step(uint8_t px);  // 实验:摄像机一次至少挪几像素(1 / 2 / 4 / 8),默认 1;mv_destroy 后也留着
-void mv_set_decor(bool on);        // 实验:云和草丛开关,默认开;mv_destroy 后也留着
-uint16_t mv_obj_count(void);       // 现在屏幕上有几个 LVGL 对象(含屏幕;上一次 mv_create / mv_update 时数的,状态行用)
+void morph_mv_destroy(void);
+void morph_mv_set_cam_step(uint8_t px);  // 实验:摄像机一次至少挪几像素(1 / 2 / 4 / 8),默认 1;morph_mv_destroy 后也留着
+void morph_mv_set_decor(bool on);        // 实验:云和草丛开关,默认开;morph_mv_destroy 后也留着
+uint16_t morph_mv_obj_count(void);       // 现在屏幕上有几个 LVGL 对象(含屏幕;上一次 morph_mv_create / morph_mv_update 时数的,状态行用)

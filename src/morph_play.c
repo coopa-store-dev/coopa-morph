@@ -119,7 +119,7 @@ static unsigned follow(morph_play_t *p, morph_body_t *b, uint32_t *at) {
     }
     unsigned ev = 0;
     while (*at + MB_STEP_MS <= p->clock) {
-        ev |= mb_step(b, p->L);
+        ev |= morph_mb_step(b, p->L);
         *at += MB_STEP_MS;
     }
     return ev;
@@ -213,7 +213,7 @@ static void on_state(morph_play_t *p, const uint8_t *m, size_t n) {
     if ((bits >> 3 & 7u) > MB_FLAPS) return;
     p->rx_seq = seq;
     morph_body_t b;
-    mb_init(&b, 0, 0, 1);
+    morph_mb_init(&b, 0, 0, 1);
     b.x = (int32_t)(x ^ 0x800000u) - 0x800000;  // 3 字节有符号
     b.y = (int16_t)get16(m + 8);
     b.vy = (int16_t)get16(m + 10);
@@ -228,7 +228,7 @@ static void on_state(morph_play_t *p, const uint8_t *m, size_t n) {
 
 // ---- 对外 ----
 
-void mp_init(morph_play_t *p, mp_send_fn send, void *ctx, const morph_level_t *L) {
+void morph_mp_init(morph_play_t *p, mp_send_fn send, void *ctx, const morph_level_t *L) {
     memset(p, 0, sizeof *p);
     p->send = send;
     p->ctx = ctx;
@@ -236,11 +236,11 @@ void mp_init(morph_play_t *p, mp_send_fn send, void *ctx, const morph_level_t *L
     p->proto = MP_PROTO;
     p->solo = send == NULL;
     p->phase = p->solo ? MP_PLAY : MP_WAIT;
-    mb_init(&p->me, L->spawn_x, L->spawn_y, 1);
+    morph_mb_init(&p->me, L->spawn_x, L->spawn_y, 1);
     p->peer = p->me;
 }
 
-void mp_connected(morph_play_t *p, bool initiator) {
+void morph_mp_connected(morph_play_t *p, bool initiator) {
     if (p->solo) return;
     p->initiator = initiator;
     p->up = true;
@@ -261,7 +261,7 @@ void mp_connected(morph_play_t *p, bool initiator) {
     pump(p);
 }
 
-void mp_lost(morph_play_t *p) {
+void morph_mp_lost(morph_play_t *p) {
     if (p->solo) return;
     p->up = false;
     p->hello = false;
@@ -271,7 +271,7 @@ void mp_lost(morph_play_t *p) {
     if (p->phase == MP_PLAY) p->phase = MP_PAUSED;
 }
 
-void mp_on_msg(morph_play_t *p, const uint8_t *m, size_t n) {
+void morph_mp_on_msg(morph_play_t *p, const uint8_t *m, size_t n) {
     if (!n) return;
     p->rx++;
     switch (m[0]) {
@@ -285,7 +285,7 @@ void mp_on_msg(morph_play_t *p, const uint8_t *m, size_t n) {
     pump(p);
 }
 
-void mp_tick(morph_play_t *p, uint32_t dt_ms) {
+void morph_mp_tick(morph_play_t *p, uint32_t dt_ms) {
     p->now += dt_ms;
     if (p->phase == MP_PLAY) {
         p->clock += dt_ms;
@@ -294,9 +294,9 @@ void mp_tick(morph_play_t *p, uint32_t dt_ms) {
     pump(p);
 }
 
-void mp_key(morph_play_t *p, uint8_t key) {
+void morph_mp_key(morph_play_t *p, uint8_t key) {
     if (p->phase != MP_PLAY || key > MK_JUMP) return;
-    mb_key(&p->me, p->L, key);
+    morph_mb_key(&p->me, p->L, key);
     p->state_due = true;
     pump(p);
 }

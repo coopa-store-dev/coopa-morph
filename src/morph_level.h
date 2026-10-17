@@ -16,6 +16,6 @@ typedef struct {
 } morph_level_t;
 
 // 左右越界 = MT_SOLID(关卡两头是墙);上面越界、下面越界 = MT_EMPTY
-morph_tile_t ml_tile(const morph_level_t *L, int col, int row);
+morph_tile_t morph_ml_tile(const morph_level_t *L, int col, int row);
 // 这一列从 foot_row 往下一直到底都没有能站的格子(实心和单向平台都能站)
-bool ml_pit(const morph_level_t *L, int col, int foot_row);
+bool morph_ml_pit(const morph_level_t *L, int col, int foot_row);

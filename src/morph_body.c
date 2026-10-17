@@ -25,7 +25,7 @@ static int col_hi(int32_t x) { return fdiv(x + HW - 1); }
 // 身子在 x 时,row 这一行盖住的列里有没有实心(want_plat:单向平台也算)
 static bool row_has(const morph_level_t *L, int32_t x, int row, bool want_plat) {
     for (int c = col_lo(x); c <= col_hi(x); c++) {
-        morph_tile_t t = ml_tile(L, c, row);
+        morph_tile_t t = morph_ml_tile(L, c, row);
         if (t == MT_SOLID || (want_plat && t == MT_PLAT)) return true;
     }
     return false;
@@ -34,7 +34,7 @@ static bool row_has(const morph_level_t *L, int32_t x, int row, bool want_plat) 
 // 脚底 y 时,身子高度内 col 这一列有没有实心
 static bool col_blocked(const morph_level_t *L, int col, int32_t y) {
     for (int r = fdiv(y - BH); r <= fdiv(y - 1); r++)
-        if (ml_tile(L, col, r) == MT_SOLID) return true;
+        if (morph_ml_tile(L, col, r) == MT_SOLID) return true;
     return false;
 }
 
@@ -44,7 +44,7 @@ static uint8_t advance(morph_body_t *b, const morph_level_t *L, bool pit_check) 
     int fc = b->dir > 0 ? col_hi(nx) : col_lo(nx);
     uint8_t st = MB_WALK;
     if (col_blocked(L, fc, b->y)) st = MB_WALL;
-    else if (pit_check && ml_pit(L, fc, fdiv(b->y))) st = MB_EDGE;
+    else if (pit_check && morph_ml_pit(L, fc, fdiv(b->y))) st = MB_EDGE;
     if (st != MB_WALK) {   // 贴到那列边上,不往回退
         if (b->dir > 0) { int32_t e = (int32_t)fc * T - HW;       if (nx > e) nx = e; if (nx < b->x) nx = b->x; }
         else            { int32_t e = (int32_t)(fc + 1) * T + HW; if (nx < e) nx = e; if (nx > b->x) nx = b->x; }
@@ -53,7 +53,7 @@ static uint8_t advance(morph_body_t *b, const morph_level_t *L, bool pit_check) 
     return st;
 }
 
-void mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir) {
+void morph_mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir) {
     memset(b, 0, sizeof *b);   // 连填充字节一起清零,两边整块比较才一样
     b->x = x_px * MB_SUB;
     b->y = y_px * MB_SUB;
@@ -61,7 +61,7 @@ void mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir) {
     b->st = MB_WALK;
 }
 
-void mb_key(morph_body_t *b, const morph_level_t *L, uint8_t key) {
+void morph_mb_key(morph_body_t *b, const morph_level_t *L, uint8_t key) {
     (void)L;
     if (key == MK_TURN) {
         b->dir = (int8_t)-b->dir;
@@ -92,9 +92,9 @@ static void respawn(morph_body_t *b, const morph_level_t *L) {
     int c = fdiv(b->x);
     if (c < 0) c = 0;
     if (c >= L->cols) c = L->cols - 1;
-    while (ml_pit(L, c, 0) && c - b->dir >= 0 && c - b->dir < L->cols) c -= b->dir;
+    while (morph_ml_pit(L, c, 0) && c - b->dir >= 0 && c - b->dir < L->cols) c -= b->dir;
     int r = 0;
-    while (r < ML_ROWS - 1 && ml_tile(L, c, r) == MT_EMPTY) r++;
+    while (r < ML_ROWS - 1 && morph_ml_tile(L, c, r) == MT_EMPTY) r++;
     b->x = b->dir > 0 ? (int32_t)(c + 1) * T - HW : (int32_t)c * T + HW;
     b->y = (int32_t)r * T;
 }
@@ -133,7 +133,7 @@ static unsigned step_air(morph_body_t *b, const morph_level_t *L) {
     return 0;
 }
 
-unsigned mb_step(morph_body_t *b, const morph_level_t *L) {
+unsigned morph_mb_step(morph_body_t *b, const morph_level_t *L) {
     if (grounded(b->st)) {
         if (b->y % T == 0 && row_has(L, b->x, fdiv(b->y), true)) return step_ground(b, L);
         b->st = MB_AIR;   // 脚下没了(走下台阶)→ 掉下去
@@ -143,12 +143,12 @@ unsigned mb_step(morph_body_t *b, const morph_level_t *L) {
     return step_air(b, L);
 }
 
-unsigned mb_run(morph_body_t *b, const morph_level_t *L, uint32_t ms, uint32_t *acc) {
+unsigned morph_mb_run(morph_body_t *b, const morph_level_t *L, uint32_t ms, uint32_t *acc) {
     unsigned ev = 0;
     *acc += ms;
     while (*acc >= MB_STEP_MS) {
         *acc -= MB_STEP_MS;
-        ev |= mb_step(b, L);
+        ev |= morph_mb_step(b, L);
     }
     return ev;
 }

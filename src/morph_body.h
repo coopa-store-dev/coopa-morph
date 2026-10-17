@@ -13,7 +13,7 @@
 
 typedef enum { MB_WALK = 0, MB_AIR, MB_EDGE, MB_WALL } morph_body_st_t;  // EDGE:坑边停住;WALL:顶着墙停住
 typedef enum { MK_TURN = 0, MK_JUMP } morph_key_t;                          // ▼ 掉头、▲ 跳 / 扑腾
-enum { MB_EV_LAND = 1u << 0, MB_EV_STOP = 1u << 1, MB_EV_PIT = 1u << 2, MB_EV_GO = 1u << 3 };  // mb_step 的返回
+enum { MB_EV_LAND = 1u << 0, MB_EV_STOP = 1u << 1, MB_EV_PIT = 1u << 2, MB_EV_GO = 1u << 3 };  // morph_mb_step 的返回
 
 typedef struct {
     int32_t x, y;        // 1/16 像素,脚底中点
@@ -24,7 +24,7 @@ typedef struct {
 // 没有别的藏着的状态:另一张卡拿这 6 样就能重建一模一样的人。
 // 掉出关卡底:从 x 那列往 dir 的反方向找第一列不是坑的,站到它最高的面上、贴着坑那一边,dir 不变。
 
-void mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir);
-void mb_key(morph_body_t *b, const morph_level_t *L, uint8_t key);  // morph_key_t
-unsigned mb_step(morph_body_t *b, const morph_level_t *L);          // 走一步(10 ms),返回 MB_EV_* 的组合
-unsigned mb_run(morph_body_t *b, const morph_level_t *L, uint32_t ms, uint32_t *acc);  // 按 10 ms 一步补齐,余数留在 acc
+void morph_mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir);
+void morph_mb_key(morph_body_t *b, const morph_level_t *L, uint8_t key);  // morph_key_t
+unsigned morph_mb_step(morph_body_t *b, const morph_level_t *L);          // 走一步(10 ms),返回 MB_EV_* 的组合
+unsigned morph_mb_run(morph_body_t *b, const morph_level_t *L, uint32_t ms, uint32_t *acc);  // 按 10 ms 一步补齐,余数留在 acc

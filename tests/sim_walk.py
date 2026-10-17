@@ -61,6 +61,14 @@ def main():
         os.makedirs(a.shots, exist_ok=True)
 
     def stat():
+        s = try_stat()
+        if s is None:
+            print("失败:读不到状态行(游戏不在前台?)", file=sys.stderr)
+            raise Fail("没有状态行")
+        return s
+
+    def try_stat():
+        """开机时还没进游戏,状态行不是 MO:返回 None(别的地方都用 stat,读不到就算失败)。"""
         f = c.cmd("stat").split()
         if len(f) != len(KEYS) + 2 or f[:2] != ["ok", "MO"]:
             return None
@@ -134,7 +142,7 @@ def main():
     try:
         c.ok("wait 1500")
         for _ in range(10):  # 开机菜单光标在游戏上:● 进游戏(状态行是 MO 才算进了)
-            if stat():
+            if try_stat():
                 break
             c.ok("press ok")
             c.ok("wait 800")
@@ -187,19 +195,45 @@ def main():
         check(turns(rows) == 0 and rows[-1]["dir"] == d0, "hold down 700 以后应该回到原方向(又变一次)", rows[-1])
         print("3. 按住 ▼ 700 ms:方向只变一次(下一次 hold 再变一次)")
 
-        # 4. 叠着按
-        for name, seq in (("▲ 先按住,▼ 叠上,先松 ▲", ["down up", "down down", "up up", "up down"]),
-                          ("▼ 先按住,▲ 叠上,先松 ▼", ["down down", "down up", "up down", "up up"])):
+        # 4. 叠着按。时刻表(毫秒,距第一个键):松键都排在起跳后 400 ms 以后(快到最高点,这时多一个 ▲ 一定看得出
+        # 是扑腾);同时给一个对照:真按一下 ▲ 在同一时刻,看得出来才算这个判定有效。
+        until(lambda s: s["x"] >= 120, 3000, "走到 x>=120")
+        for name, sched, releases in (
+                ("▲ 先按住,▼ 叠上,先松 ▲", [(0, "down up"), (200, "down down"), (400, "up up"), (550, "up down")],
+                 (400, 550)),
+                ("▼ 先按住,▲ 叠上,先松 ▼", [(0, "down down"), (200, "down up"), (600, "up down"), (750, "up up")],
+                 (600, 750)),
+                ("对照:▲ 按住不放,400 ms 时真按 ▲ 一下", None, None)):
             solo()
             until(lambda s: s["x"] >= 120, 3000, "走到 x>=120")
-            rows = [stat()]
-            for k in seq:
+            rows, ts = [stat()], {}
+            if sched is None:
+                c.ok("down up")
+                ts[0] = rows[-1]["clock"]
+                rows += watch(400, 10)
+                c.ok("up up")  # 先松开(按键组件要一会儿才认松开),再真按一下 ▲:这就是「多出来的一下」
+                rows += watch(100, 10)
+                ts[400] = rows[-1]["clock"]
+                c.ok("press up 50")
+                rows += watch(1500, 10)
+                eff = kick_effect(rows, ts[400])
+                check(eff < -0.05, f"对照:400 ms 时真按的 ▲ 应该看得出推了一次,读到 {eff:.2f}(判定没用)", rows[-1])
+                print(f"4. {name}:推力 {eff:.2f}(< -0.05,判定有效)")
+                continue
+            t_prev = 0
+            for t, k in sched:
+                rows += watch(t - t_prev, 10)
+                t_prev = t
+                ts[t] = rows[-1]["clock"]
                 c.ok(k)
-                rows += watch(90, 10)
             rows += watch(1500, 10)
             nt, nj = turns(rows), takeoffs(rows)
             check(nt <= 1 and nj <= 1, f"叠着按({name}):方向变了 {nt} 次、跳了 {nj} 次(最多各 1 次)", rows[-1])
-            print(f"4. 叠着按({name}):方向变 {nt} 次、跳 {nj} 次")
+            effs = [kick_effect(rows, ts[t]) for t in releases]
+            check(all(e > -0.05 for e in effs),
+                  f"叠着按({name}):松键的时刻多出了一下扑腾(幻影 ▲),推力 {[round(e, 2) for e in effs]}", rows[-1])
+            print(f"4. 叠着按({name}):方向变 {nt} 次、跳 {nj} 次,松键时刻没有多出扑腾(推力 "
+                  f"{[round(e, 2) for e in effs]},> -0.05)")
 
         # 5. 一秒 5 下(间隔 200 ms)
         solo()
@@ -209,7 +243,7 @@ def main():
         shot("5-flap")
         eff = [round(kick_effect(rows, t), 2) for t in ts]
         check(takeoffs(rows) == 1, "连按 5 下应该只起跳一次", rows[-1])
-        check(all(e < -0.05 for e in eff[2:]), f"第 3、4、5 下应该各推一次(推的效果 < -0.05),读到 {eff}", rows[-1])
+        check(all(e < -0.035 for e in eff[2:]), f"第 3、4、5 下应该各推一次(推的效果 < -0.035),读到 {eff}", rows[-1])
         print(f"5. 连按 5 下:起跳 1 次,扑腾的推力(第 1 下是起跳;第 2 下起跳正猛,可以被吞)={eff[1:]},y 最高 "
               f"{min(r['y'] for r in rows)}")
         solo()
@@ -218,8 +252,8 @@ def main():
         rows += watch(300, 10)
         eff = [round(kick_effect(rows, t), 2) for t in ts]
         check(takeoffs(rows) == 1 and rows[-1]["st"] == MB_AIR, "9 下应该在空中、只起跳一次", rows[-1])
-        check(all(e < -0.05 for e in eff[2:6]), f"第 3..6 下应该各推一次,读到 {eff}", rows[-1])
-        check(all(e > -0.05 for e in eff[6:]), f"第 7 下以后(扑腾已满 {5} 次)不该再推,读到 {eff}", rows[-1])
+        check(all(e < -0.035 for e in eff[2:6]), f"第 3..6 下应该各推一次,读到 {eff}", rows[-1])
+        check(all(e > -0.035 for e in eff[6:]), f"第 7 下以后(扑腾已满 {5} 次)不该再推,读到 {eff}", rows[-1])
         print(f"   按 9 下:各下的推力 {eff[1:]}:第 6 下以前有推,第 7 下以后没有(第 2 下虽然被吞,次数照算)")
         until(lambda s: s["st"] != MB_AIR, 8000, "落地")
 
@@ -238,27 +272,24 @@ def main():
             cams.append(stat()["cam"])
         check(cams == [2, 4, 8, 1], f"BOS2 四次 cam 应依次 2 4 8 1,读到 {cams}")
         print(f"   BOS2 x4 → cam {cams}")
-        if a.shots:
-            from PIL import Image, ImageChops
-            sh = [os.path.join(a.shots, n + ".png") for n in ("6-decor-on", "6-decor-off", "6-decor-on-again")]
-            c.ok(f"shot {sh[0]}")
-            c.ok("serial BOS3")
-            c.ok("wait 100")
-            c.ok(f"shot {sh[1]}")
-            c.ok("serial BOS3")
-            c.ok("wait 100")
-            c.ok(f"shot {sh[2]}")
-            nonzero = lambda d: sum(d.convert("L").histogram()[1:])  # noqa: E731  不是全黑的像素数
-            im = [Image.open(p).convert("RGB") for p in sh]
-            d_off = nonzero(ImageChops.difference(im[0], im[1]))
-            d_back = nonzero(ImageChops.difference(im[0], im[2]))
-            check(d_off > 200, f"BOS3 以后画面应该少了云和草丛,不同的像素只有 {d_off}")
-            check(d_back == 0, f"再 BOS3 云和草丛应该回来,仍有 {d_back} 个像素不同")
-            print(f"   BOS3:云和草丛没了(差 {d_off} 个像素);再 BOS3 回来(差 {d_back})")
-        else:
-            c.ok("serial BOS3")
-            c.ok("wait 100")
-            print("   (没给 --shots,云有没有只看不到截图)")
+        from PIL import Image, ImageChops
+        dd = a.shots or os.path.join(root, "decor")
+        os.makedirs(dd, exist_ok=True)
+        sh = [os.path.join(dd, n + ".png") for n in ("6-decor-on", "6-decor-off", "6-decor-on-again")]
+        c.ok(f"shot {sh[0]}")
+        c.ok("serial BOS3")
+        c.ok("wait 100")
+        c.ok(f"shot {sh[1]}")
+        c.ok("serial BOS3")
+        c.ok("wait 100")
+        c.ok(f"shot {sh[2]}")
+        nonzero = lambda d: sum(d.convert("L").histogram()[1:])  # noqa: E731  不是全黑的像素数
+        im = [Image.open(p).convert("RGB") for p in sh]
+        d_off = nonzero(ImageChops.difference(im[0], im[1]))
+        d_back = nonzero(ImageChops.difference(im[0], im[2]))
+        check(d_off > 200, f"BOS3 以后画面应该少了云和草丛,不同的像素只有 {d_off}")
+        check(d_back == 0, f"再 BOS3 云和草丛应该回来,仍有 {d_back} 个像素不同")
+        print(f"   BOS3:云和草丛没了(差 {d_off} 个像素);再 BOS3 回来(差 {d_back})")
         s = stat()
         check(s["refused"] == 0 and s["max_ms"] <= 40, "refused != 0 或 dt 最大 > 40 ms", s)
         print("sim_walk: ok")

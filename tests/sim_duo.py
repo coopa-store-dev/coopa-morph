@@ -55,12 +55,21 @@ class Card:
             time.sleep(0.2)
         self.ctl = Sim(sock)
 
-    def stat(self):
+    def try_stat(self):
+        """开机时还没进游戏,状态行不是 MO:返回 None(别的地方都用 stat,读不到就算失败)。"""
         f = self.ctl.cmd("stat").split()
         if len(f) != len(KEYS) + 2 or f[:2] != ["ok", "MO"]:
             return None
         self.last = dict(zip(KEYS, map(int, f[2:])))
         return self.last
+
+    def stat(self):
+        s = self.try_stat()
+        if s is None:
+            print(f"失败:{self.name} 读不到状态行(游戏不在前台?)", file=sys.stderr)
+            dump((self.name, self.last))
+            raise Fail("没有状态行")
+        return s
 
     def press(self, k, ms=50):
         self.ctl.ok(f"press {k} {ms}")
@@ -68,7 +77,7 @@ class Card:
     def enter_game(self):
         """开机菜单光标在游戏上:● 进游戏(状态行变成 MO);首页光标在「两人联机」:● 去找队友。"""
         end = time.time() + 60
-        while self.stat() is None:
+        while self.try_stat() is None:
             if time.time() > end:
                 sys.exit(f"{self.name} 进不了游戏")
             self.press("ok")
@@ -115,7 +124,7 @@ def main():
         os.makedirs(a.shots, exist_ok=True)
 
     def both(pred):
-        return lambda: (lambda x, y: x and y and pred(x, y))(ca.stat(), cb.stat())
+        return lambda: pred(ca.stat(), cb.stat())
 
     def fail(msg):
         print(f"失败:{msg}", file=sys.stderr)
@@ -125,13 +134,15 @@ def main():
     def settle_and_compare(label):
         """两边都停手:等到两个人都停在坑边 / 墙边(最多 15 秒),再比对方的位置。"""
         stopped = lambda s: s["st"] in (MB_EDGE, MB_WALL)  # noqa: E731
-        wait(both(lambda x, y: stopped(x) and stopped(y) and x["peer_st"] == y["st"] and y["peer_st"] == x["st"]),
+        wait(both(lambda x, y: x["phase"] == MP_PLAY and y["phase"] == MP_PLAY and stopped(x) and stopped(y)
+                  and x["peer_st"] == y["st"] and y["peer_st"] == x["st"]),
              15, f"{label}:两个人都停住(坑边 / 墙边)", ca, cb)
         time.sleep(0.3)  # 状态行是各读各的,多等一下再读一对
         x, y = ca.stat(), cb.stat()
         for who, me, other in (("a 看 b", x, y), ("b 看 a", y, x)):
             if (abs(me["peer_x"] - other["x"]) > 1 or abs(me["peer_y"] - other["y"]) > 1
-                    or me["peer_st"] != other["st"] or not stopped(other)):
+                    or me["peer_st"] != other["st"] or not stopped(other)
+                    or me["phase"] != MP_PLAY or other["phase"] != MP_PLAY):
                 fail(f"{label}:{who}的位置对不上(peer_x peer_y 要等于对方的 x y,±1 像素)")
         return x, y
 
@@ -184,13 +195,13 @@ def main():
                     st = cb.stat()
                     seen_b |= st["phase"] == MP_PAUSED
                     ra, rb = ca.stat(), st
-                    if ra["phase"] == MP_PLAY and rb["phase"] == MP_PLAY and seen_b:
+                    if ra["phase"] == MP_PLAY and rb["phase"] == MP_PLAY:
                         break
                     time.sleep(0.05)
                 else:
-                    fail("放开 b 后 2 秒内两边没都回到 MP_PLAY(或 b 没有进过 MP_PAUSED)")
+                    fail("放开 b 后 2 秒内两边没都回到 MP_PLAY")
                 print(f"  {time.time() - t_start:5.1f}s 停住 b 3 秒:a 进了 MP_PAUSED;放开后 "
-                      f"{time.time() - t0:.2f} 秒两边回到 MP_PLAY(b 自己也进过 MP_PAUSED)", flush=True)
+                      f"{time.time() - t0:.2f} 秒两边回到 MP_PLAY(b 自己{'进过' if seen_b else '没抓到'} MP_PAUSED:停住的那张卡自己的时钟也停了,回来时可能一帧就接上)", flush=True)
                 if a.shots:
                     ca.ctl.ok(f"shot {os.path.join(a.shots, 'duo-a-resumed.png')}")
                     cb.ctl.ok(f"shot {os.path.join(a.shots, 'duo-b-resumed.png')}")

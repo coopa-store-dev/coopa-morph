@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>库巴变变变 战斗小样</title>
+<style>
+  :root { --bg: #1d1b22; --fg: #eee; --btn: #d32f25; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif;
+         display: flex; flex-direction: column; align-items: center; padding: 16px; gap: 12px; }
+  canvas { width: 480px; height: 640px; max-width: calc(100vw - 32px); height: auto; aspect-ratio: 3 / 4;
+           image-rendering: pixelated; border-radius: 10px; background: #000; }
+  .pad { display: flex; gap: 18px; }
+  .pad button { width: 72px; height: 72px; border-radius: 50%; border: none; background: var(--btn);
+                color: #fff; font-size: 28px; touch-action: none; user-select: none; }
+  .pad button:active { filter: brightness(1.3); }
+  .help { font-size: 13px; opacity: .75; text-align: center; line-height: 1.6; max-width: 480px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="240" height="320"></canvas>
+<div class="pad">
+  <button data-k="up">▲</button><button data-k="ok">●</button><button data-k="down">▼</button>
+</div>
+<div class="help">
+  键盘:▲ = ↑ 或 W,● = 空格 或 J,▼ = ↓ 或 S。和卡上一样:只认「按下」和「按住 0.5 秒」,不认松手。<br>
+  ● 点:三连击 · ● 按住:蓄力斩(对晕的怪:吞掉变身)· ▼ 点:翻滚 · ▼ 按住:翻滚后举盾 · ▼ 后马上 ●:技能 · ▲:大招 · 满 3 格时 ▼ 后马上 ▲:超必杀
+</div>
+<script>
+"use strict";
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+const W = 240, H = 320, GROUND = 262, ARENA_L = 8, ARENA_R = 232;
+
+// ---------- 按键:模拟卡上(按下 + 按住 0.5 秒的长按,▲ 没有长按) ----------
+const held = {}, inputs = [];
+function keyDown(k) {
+  if (held[k]) return;
+  held[k] = performance.now();
+  inputs.push({ k, long: false });
+  if (k !== "up") {
+    const t0 = held[k];
+    setTimeout(() => { if (held[k] === t0) inputs.push({ k, long: true }); }, 500);
+  }
+}
+function keyUp(k) { held[k] = 0; }
+const KEYMAP = { ArrowUp: "up", KeyW: "up", Space: "ok", KeyJ: "ok", ArrowDown: "down", KeyS: "down" };
+addEventListener("keydown", e => { const k = KEYMAP[e.code]; if (k) { e.preventDefault(); if (!e.repeat) keyDown(k); } });
+addEventListener("keyup", e => { const k = KEYMAP[e.code]; if (k) keyUp(k); });
+document.querySelectorAll(".pad button").forEach(b => {
+  const k = b.dataset.k;
+  b.addEventListener("pointerdown", e => { e.preventDefault(); b.setPointerCapture(e.pointerId); keyDown(k); });
+  b.addEventListener("pointerup", () => keyUp(k));
+  b.addEventListener("pointercancel", () => keyUp(k));
+});
+
+// ---------- 数值 ----------
+const FORMS = {
+  normal: { name: "库巴", skill: "冲刺斩", ult: "旋风百裂拳", sup: "库巴无双", color: "#d32f25" },
+  ice:    { name: "冰淇淋", skill: "冰球", ult: "冰淇淋雪崩", sup: "万年冰山", color: "#f48fb1" },
+  volt:   { name: "电池", skill: "放电圈", ult: "雷电风暴", sup: "雷神降临", color: "#fdd835" },
+};
+const ENEMY = {
+  clock: { name: "发条兵", hp: 40, stun: 36, reach: 24, dmg: 8, speed: 34, w: 16, h: 20, form: null },
+  ice:   { name: "冰淇淋怪", hp: 36, stun: 32, reach: 24, dmg: 8, speed: 30, w: 14, h: 22, form: "ice" },
+  volt:  { name: "电池虫", hp: 34, stun: 32, reach: 24, dmg: 9, speed: 40, w: 18, h: 12, form: "volt" },
+  bear:  { name: "发条铁皮熊", hp: 420, stun: 130, reach: 46, dmg: 16, speed: 26, w: 40, h: 46, form: null, boss: true },
+};
+// 大招总伤害(按能量格数,打每只怪)和超必杀总伤害;都是基础值,慢动作再 ×2,超必杀绝境再 ×2
+const ULT_DMG = [0, 30, 55, 85], ULT_BREAK = [0, 0, 1, 2], SUPER_DMG = 150;
+const WAVES = [["clock", "ice"], ["volt", "clock", "volt"], ["bear"]];
+
+// ---------- 状态 ----------
+let P, foes, fx, nums, stars, shots, wave, combo, comboT, slowT, stopT, shakeT, cine, phase, msg, msgT, lastDown;
+
+function reset() {
+  P = { x: 60, face: 1, hp: 100, en: 0, form: "normal", st: "idle", t: 0, chain: 0, chainT: 0, hitDone: false,
+        inv: 0, shieldT: 0, shieldAge: 0, wantShield: false, skillCd: 0, vx: 0, flash: 0 };
+  foes = []; fx = []; nums = []; stars = []; shots = [];
+  wave = -1; combo = 0; comboT = 0; slowT = 0; stopT = 0; shakeT = 0; cine = null; lastDown = -9;
+  phase = "title"; msg = ""; msgT = 0;
+}
+function say(s, t = 1.4) { msg = s; msgT = t; }
+
+function spawnWave() {
+  wave++;
+  if (wave >= WAVES.length) { phase = "win"; return; }
+  WAVES[wave].forEach((type, i) => spawn(type, i % 2 ? ARENA_L + 10 + i * 6 : ARENA_R - 10 - i * 6));
+  say(wave === WAVES.length - 1 ? "BOSS:发条铁皮熊!" : `第 ${wave + 1} 波`);
+}
+function spawn(type, x) {
+  const d = ENEMY[type];
+  foes.push({ type, d, x, y: 0, vy: 0, vx: 0, face: -1, hp: d.hp, stunG: 0, stunT: 0, freezeT: 0,
+              st: "walk", t: 0, wait: 0.6 + Math.random() * 0.8, flash: 0, armor: d.boss ? 3 : 0,
+              atk: null, summonT: 10 });
+}
+
+// ---------- 小工具 ----------
+const alive = () => foes.filter(f => f.hp > 0);
+function target() {
+  let best = null, bd = 1e9;
+  for (const f of alive()) { const d = Math.abs(f.x - P.x); if (d < bd) { bd = d; best = f; } }
+  return best;
+}
+function dist(f) { return Math.abs(f.x - P.x) - f.d.w / 2; }
+function addNum(x, y, s, c = "#fff") { nums.push({ x, y, s, c, t: 0.8 }); }
+function burst(x, y, c, n = 6) {
+  for (let i = 0; i < n; i++) fx.push({ x, y, vx: (Math.random() - .5) * 160, vy: -Math.random() * 140, c, t: .4 });
+}
+
+// 打怪:dmg 基础伤害;opt.stun 加晕;opt.knock 打飞;opt.breakArmor 破甲
+function hit(f, dmg, opt = {}) {
+  if (f.hp <= 0) return;
+  let m = 1;
+  if (slowT > 0) m *= 2;
+  if (f.stunT > 0 && !opt.flat) m *= 1.5;
+  if (f.armor > 0) {
+    if (opt.breakArmor) { f.armor--; say(f.armor ? "铁甲裂了!" : "铁甲碎了!", 1); shakeT = .25; burst(f.x, GROUND - 30, "#9e9e9e", 12); }
+    else m *= 0.3;
+  }
+  const d = Math.max(1, Math.round(dmg * m));
+  f.hp -= d; f.flash = .12;
+  addNum(f.x, GROUND - f.d.h - 8, d, m >= 2 ? "#4fc3f7" : "#fff");
+  combo++; comboT = 1.6;
+  P.en = Math.min(300, P.en + 6);
+  if (f.stunT <= 0 && f.freezeT <= 0) {
+    f.stunG += opt.stun || 0;
+    if (f.stunG >= f.d.stun) { f.stunG = 0; f.stunT = f.d.boss ? 2.5 : 3.2; f.st = "stun"; f.atk = null; say(f.d.boss ? "熊晕了!猛打!" : "晕了!按住 ● 吞掉!", 1.2); }
+  }
+  if (opt.knock && !f.d.boss) { f.vx = P.face * 150; f.vy = -170; f.st = "air"; f.atk = null; }
+  else if (f.st === "tele" && opt.knock) { f.st = "walk"; f.atk = null; f.wait = .8; }  // 重击打断出招
+  stopT = Math.max(stopT, opt.big ? .09 : .05);
+  if (opt.big) shakeT = Math.max(shakeT, .2);
+  burst(f.x, GROUND - f.d.h / 2, "#fff59d", opt.big ? 10 : 5);
+  if (f.hp <= 0) { f.hp = 0; burst(f.x, GROUND - 10, "#ffb74d", 14); }
+}
+
+// ---------- 玩家 ----------
+function canAct() {
+  return ["idle", "walk"].includes(P.st) ||
+    (P.st === "atk" && P.t > 0.16) || (P.st === "roll" && P.t > 0.24) || (P.st === "shield");
+}
+function setSt(s) { P.st = s; P.t = 0; P.hitDone = false; }
+
+function onInput(i) {
+  if (phase === "title" || phase === "win" || phase === "dead") { if (i.k === "ok" && !i.long) { if (phase !== "title") reset(); phase = "fight"; spawnWave(); } return; }
+  if (cine) return;
+  const now = performance.now() / 1000;
+  if (i.k === "down" && !i.long) {
+    lastDown = now;
+    if (!canAct()) return;
+    const tg = target(); if (tg) P.face = tg.x > P.x ? 1 : -1;
+    setSt("roll"); P.inv = .28; P.rollStart = clock;
+    return;
+  }
+  if (i.k === "down" && i.long) { if (P.st === "roll") P.wantShield = true; else if (canAct()) startShield(); return; }
+  if (i.k === "ok" && !i.long) {
+    if (!canAct() && P.st !== "roll") return;
+    if (now - lastDown < 0.35 && P.skillCd <= 0) { skill(); return; }
+    if (P.st === "roll") return;
+    P.chain = P.st === "atk" && P.chainT > 0 && P.chain < 3 ? P.chain + 1 : 1;
+    faceTarget(); setSt("atk");
+    return;
+  }
+  if (i.k === "ok" && i.long) {
+    if (!["idle", "walk", "atk"].includes(P.st)) return;
+    const st = alive().find(f => f.stunT > 0 && !f.d.boss && Math.abs(f.x - P.x) < 44);
+    const sr = stars.find(s => Math.abs(s.x - P.x) < 44);
+    if (st || sr) { faceTarget(st || sr); setSt("swallow"); P.swallowWhat = st || sr; P.inv = 1.2; return; }
+    faceTarget(); setSt("charge");
+    return;
+  }
+  if (i.k === "up") {
+    if (now - lastDown < 0.35 && P.en >= 300 && ["idle", "walk", "atk", "shield", "roll"].includes(P.st)) {
+      P.en = 0;
+      cine = { name: FORMS[P.form].sup, lv: 3, t: 0, form: P.form, sup: true, low: P.hp < 30 };
+      P.inv = 3; setSt("ult"); return;
+    }
+    if (P.en < 100 || !["idle", "walk", "atk", "shield"].includes(P.st)) { if (P.en < 100) say("能量不够", .6); return; }
+    const lv = Math.floor(P.en / 100); P.en = 0;
+    const f = FORMS[P.form];
+    cine = { name: f.ult, lv, t: 0, form: P.form };
+    P.inv = 2; setSt("ult");
+  }
+}
+function faceTarget(t) { t = t || target(); if (t) P.face = t.x > P.x ? 1 : -1; }
+function startShield() { setSt("shield"); P.shieldT = 1.0; P.shieldAge = 0; }
+
+function skill() {
+  P.skillCd = 1.4; faceTarget(); setSt("skill");
+  if (P.form === "ice") shots.push({ x: P.x + P.face * 10, y: GROUND - 18, vx: P.face * 200, t: 1.2 });
+  if (P.form === "volt") { burst(P.x, GROUND - 14, "#fff176", 16); for (const f of alive()) if (Math.abs(f.x - P.x) < 54) hit(f, 12, { stun: 20 }); }
+}
+
+function attackBox(reach) {
+  return alive().filter(f => (f.x - P.x) * P.face > -6 && Math.abs(f.x - P.x) - f.d.w / 2 < reach);
+}
+
+function updatePlayer(dt) {
+  P.t += dt; P.inv = Math.max(0, P.inv - dt); P.chainT = Math.max(0, P.chainT - dt);
+  P.skillCd = Math.max(0, P.skillCd - dt); P.flash = Math.max(0, P.flash - dt);
+  const tg = target();
+  switch (P.st) {
+    case "idle": case "walk":
+      if (tg) {
+        P.face = tg.x > P.x ? 1 : -1;
+        const gap = dist(tg);
+        if (gap > 20 && tg.stunT <= 0 || gap > 30) { P.st = "walk"; P.x += P.face * 70 * dt; }
+        else P.st = "idle";
+      } else P.st = "idle";
+      break;
+    case "atk": {
+      const dmg = [0, 6, 6, 11][P.chain];
+      if (!P.hitDone && P.t > 0.08) {
+        P.hitDone = true; P.x += P.face * 4;
+        for (const f of attackBox(30)) hit(f, dmg, { stun: P.chain === 3 ? 16 : 8, knock: P.chain === 3, big: P.chain === 3 });
+        P.chainT = 0.4;
+      }
+      if (P.t > 0.32) setSt("idle");
+      break;
+    }
+    case "charge":
+      if (!P.hitDone && P.t > 0.1) {
+        P.hitDone = true; P.x += P.face * 10; shakeT = .2;
+        for (const f of attackBox(38)) hit(f, 24, { stun: 34, knock: true, big: true, breakArmor: true });
+      }
+      if (P.t > 0.45) setSt("idle");
+      break;
+    case "roll":
+      P.x -= P.face * 150 * dt * (P.t < 0.3 ? 1 : 0);
+      if (P.t > 0.34) { if (P.wantShield) { P.wantShield = false; startShield(); } else setSt("idle"); }
+      break;
+    case "shield":
+      P.shieldAge += dt; P.shieldT -= dt;
+      if (P.shieldT <= 0) setSt("idle");
+      break;
+    case "skill":
+      if (P.form === "normal" && P.t < 0.18) {
+        P.x += P.face * 380 * dt; P.inv = Math.max(P.inv, .05);
+        if (!P.hitDone && P.t > 0.08) { P.hitDone = true; for (const f of attackBox(34)) hit(f, 14, { stun: 16, big: true }); }
+      }
+      if (P.t > 0.32) setSt("idle");
+      break;
+    case "swallow": {
+      const w = P.swallowWhat;
+      if (w) w.x += (P.x + P.face * 8 - w.x) * Math.min(1, dt * 8);
+      if (P.t > 0.55) {
+        let form = null;
+        if (w && w.d) { form = w.d.form; w.hp = 0; } else if (w) { form = w.form; const i = stars.indexOf(w); if (i >= 0) stars.splice(i, 1); }
+        if (form) { P.form = form; setSt("morph"); P.inv = .7; burst(P.x, GROUND - 16, FORMS[form].color, 20); say(`变身!${FORMS[form].name}`, 1.4); }
+        else { P.hp = Math.min(100, P.hp + 15); addNum(P.x, GROUND - 34, "+15", "#81c784"); setSt("idle"); }
+      }
+      break;
+    }
+    case "morph": if (P.t > 0.6) setSt("idle"); break;
+    case "hurt": P.x -= P.face * 60 * dt; if (P.t > 0.35) setSt("idle"); break;
+    case "ult": break;
+  }
+  P.x = Math.max(ARENA_L + 6, Math.min(ARENA_R - 6, P.x));
+}
+
+function hurtPlayer(f, dmg) {
+  if (P.hp <= 0) return;
+  if (P.st === "roll" && P.inv > 0) {
+    if (clock - P.rollStart < 0.22 && slowT <= 0) { slowT = 2; P.en = Math.min(300, P.en + 50); say("完美闪避!", 1); }
+    return;
+  }
+  if (P.inv > 0) return;
+  if (P.st === "shield" && (f.x - P.x) * P.face > 0) {
+    if (P.shieldAge < 0.2) {
+      say("弹反!", .8); P.en = Math.min(300, P.en + 40); f.st = "stagger"; f.t = 0; f.atk = null;
+      f.stunG += 30; if (f.armor) { f.armor--; say("弹反破甲!", 1); }
+      stopT = .1; shakeT = .15; burst(P.x + P.face * 10, GROUND - 16, "#80deea", 12); return;
+    }
+    dmg = Math.round(dmg * 0.2);
+  }
+  P.hp -= dmg; P.flash = .15; P.en = Math.min(300, P.en + 10);
+  addNum(P.x, GROUND - 34, dmg, "#ef5350"); shakeT = Math.max(shakeT, .15); combo = 0;
+  if (P.st !== "shield") setSt("hurt");
+  if (P.form !== "normal") {   // 挨打掉能力:星星弹出来,3 秒内吞回来
+    stars.push({ x: P.x, y: GROUND - 20, vy: -160, vx: -P.face * 60, form: P.form, t: 3 });
+    P.form = "normal"; say("能力掉了!快吞回来", 1);
+  }
+  if (P.hp <= 0) { P.hp = 0; phase = "dead"; }
+}
+
+// ---------- 怪 ----------
+function updateFoe(f, dt) {
+  f.flash = Math.max(0, f.flash - dt);
+  if (f.hp <= 0) return;
+  if (f.st === "air") {
+    f.x += f.vx * dt; f.vy += 600 * dt; f.y += f.vy * dt;
+    if (f.y >= 0) { f.y = 0; f.vy = 0; f.vx = 0; f.st = f.stunT > 0 ? "stun" : "walk"; f.wait = .5; }
+    f.x = Math.max(ARENA_L, Math.min(ARENA_R, f.x)); return;
+  }
+  if (f.freezeT > 0) { f.freezeT -= dt; return; }
+  if (f.stunT > 0) { f.stunT -= dt; if (f.stunT <= 0) { f.st = "walk"; f.wait = .4; } return; }
+  f.t += dt;
+  f.face = P.x > f.x ? 1 : -1;
+  const gap = Math.abs(P.x - f.x) - f.d.w / 2;
+  if (f.d.boss) { f.summonT -= dt; if (f.summonT <= 0 && alive().length < 3) { f.summonT = 11; spawn(Math.random() < .5 ? "ice" : "volt", f.x < 120 ? ARENA_R - 10 : ARENA_L + 10); say("熊叫来了帮手", 1); } }
+  switch (f.st) {
+    case "walk":
+      if (gap > f.d.reach - 4) f.x += f.face * f.d.speed * dt;
+      else { f.wait -= dt; if (f.wait <= 0) startAttack(f); }
+      break;
+    case "tele":
+      if (f.t >= f.atk.tele) { f.st = "atk"; f.t = 0; }
+      break;
+    case "atk":
+      if (f.atk.kind === "dash") {
+        f.x += f.atk.dir * 170 * dt;
+        if (!f.atk.done && Math.abs(P.x - f.x) < f.d.w / 2 + 6) { f.atk.done = true; hurtPlayer(f, 15); }
+        if (f.t > 1.0 || f.x <= ARENA_L + f.d.w / 2 || f.x >= ARENA_R - f.d.w / 2) { f.st = "walk"; f.wait = 1.2; f.atk = null; }
+      } else {
+        if (!f.atk.done && f.t > 0.02) { f.atk.done = true; if (Math.abs(P.x - f.x) - f.d.w / 2 < f.d.reach + 4) hurtPlayer(f, f.d.dmg); if (f.d.boss) shakeT = .25; }
+        if (f.t > 0.5) { f.st = "walk"; f.wait = (f.d.boss ? 0.6 : 0.9) + Math.random() * 0.9; f.atk = null; }
+      }
+      break;
+    case "stagger": if (f.t > 1.2) { f.st = "walk"; f.wait = .3; } break;
+  }
+  f.x = Math.max(ARENA_L + f.d.w / 2, Math.min(ARENA_R - f.d.w / 2, f.x));
+}
+function startAttack(f) {
+  f.st = "tele"; f.t = 0;
+  if (f.d.boss && Math.random() < 0.35) f.atk = { kind: "dash", tele: 1.0, dir: f.face };
+  else f.atk = { kind: "hit", tele: 0.8 };
+}
+
+// ---------- 大招 ----------
+function runUlt() {
+  const { form, lv } = cine;
+  shakeT = .5; stopT = .12;
+  for (const f of alive()) {
+    const n = form === "normal" ? 4 + lv * 2 : form === "volt" ? lv + 1 : 1;   // 几下打完(百裂拳多下,雷电几道,冰山一下)
+    if (form === "normal" && Math.abs(f.x - P.x) >= 70 + lv * 30) continue;     // 百裂拳打不到远处
+    if (f.armor && ULT_BREAK[lv]) { f.armor = Math.max(0, f.armor - ULT_BREAK[lv]); say(f.armor ? "铁甲裂了!" : "铁甲碎了!", 1); }  // 先破甲,剩下的甲照常减伤
+    for (let i = 0; i < n; i++) hit(f, ULT_DMG[lv] / n, { stun: 24 / n, flat: true, big: i === n - 1 });
+    if (form === "ice" && f.hp > 0) f.freezeT = 1.5 + lv;
+  }
+  for (let i = 0; i < 20 + lv * 10; i++) fx.push({ x: Math.random() * W, y: 40 + Math.random() * 200, vx: 0, vy: 120, c: FORMS[form].color, t: .6 });
+}
+
+// 超必杀:全场重伤、全部晕住、熊的铁甲全碎;自己血少于 30 时伤害翻倍
+function runSuper() {
+  const { form, low } = cine, m = low ? 2 : 1;
+  shakeT = .9; stopT = .2;
+  for (const f of alive()) {
+    f.armor = 0;
+    for (let i = 0; i < 6; i++) hit(f, SUPER_DMG * m / 6, { flat: true, big: i === 5 });
+    if (f.hp > 0) { f.stunG = 0; f.stunT = f.d.boss ? 3 : 4; f.st = "stun"; f.atk = null; }
+    if (form === "ice" && f.hp > 0) f.freezeT = 2;
+  }
+  for (let i = 0; i < 80; i++) fx.push({ x: Math.random() * W, y: 30 + Math.random() * 230, vx: (Math.random() - .5) * 200, vy: -Math.random() * 200, c: i % 2 ? FORMS[form].color : "#fff", t: .9 });
+  say(low ? "绝境翻盘!伤害翻倍!" : "超必杀!", 1.4);
+}
+
+// ---------- 主循环 ----------
+let clock = 0, last = performance.now();
+function frame(now) {
+  let dt = Math.min(0.05, (now - last) / 1000); last = now;
+  while (inputs.length) onInput(inputs.shift());
+  if (phase === "fight") step(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+function step(dt) {
+  clock += dt;
+  msgT = Math.max(0, msgT - dt);
+  for (const n of nums) { n.t -= dt; n.y -= 24 * dt; } nums = nums.filter(n => n.t > 0);
+  for (const p of fx) { p.t -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 300 * dt; } fx = fx.filter(p => p.t > 0);
+  shakeT = Math.max(0, shakeT - dt);
+  if (cine) { cine.t += dt; if (cine.t > (cine.sup ? 2.2 : 1.3)) { cine.sup ? runSuper() : runUlt(); cine = null; setSt("idle"); } return; }
+  if (stopT > 0) { stopT -= dt; return; }
+  comboT -= dt; if (comboT <= 0) combo = 0;
+  updatePlayer(dt);
+  const fdt = slowT > 0 ? dt * 0.3 : dt;
+  slowT = Math.max(0, slowT - dt);
+  for (const f of foes) updateFoe(f, fdt);
+  for (const s of shots) {
+    s.x += s.vx * dt; s.t -= dt;
+    const f = alive().find(f => Math.abs(f.x - s.x) < f.d.w / 2 + 3);
+    if (f) { hit(f, 10, { stun: 10 }); f.freezeT = f.d.boss ? 0.8 : 1.8; s.t = 0; burst(s.x, s.y, "#e1f5fe", 8); }
+  }
+  shots = shots.filter(s => s.t > 0 && s.x > 0 && s.x < W);
+  for (const s of stars) { s.t -= dt; s.x += s.vx * dt; s.vy += 500 * dt; s.y = Math.min(GROUND - 6, s.y + s.vy * dt); if (s.y >= GROUND - 6) { s.vy = -s.vy * 0.5; s.vx *= .7; } s.x = Math.max(12, Math.min(W - 12, s.x)); }
+  stars = stars.filter(s => s.t > 0);
+  foes = foes.filter(f => f.hp > 0 || f.flash > 0);
+  if (!alive().length && phase === "fight") spawnWave();
+}
+
+// ---------- 画 ----------
+function rect(x, y, w, h, c) { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), w, h); }
+function text(s, x, y, size, c, align = "center") {
+  g.font = `bold ${size}px system-ui, sans-serif`; g.textAlign = align; g.lineWidth = 3;
+  g.strokeStyle = "#000"; g.strokeText(s, x, y); g.fillStyle = c; g.fillText(s, x, y);
+}
+function drawBg() {
+  const grd = g.createLinearGradient(0, 30, 0, GROUND); grd.addColorStop(0, "#3949ab"); grd.addColorStop(1, "#9fa8da");
+  g.fillStyle = grd; g.fillRect(0, 0, W, H);
+  rect(0, 150, 40, 112, "#5c6bc0"); rect(50, 120, 34, 142, "#5c6bc0"); rect(150, 135, 46, 127, "#5c6bc0"); rect(206, 110, 34, 152, "#5c6bc0");
+  for (let i = 0; i < 6; i++) rect(58 + (i % 2) * 14, 130 + Math.floor(i / 2) * 26, 8, 10, "#ffe082");
+  rect(0, GROUND, W, H - GROUND, "#6d4c41"); rect(0, GROUND, W, 4, "#8d6e63");
+  for (let x = 0; x < W; x += 16) rect(x, GROUND + 10, 8, 3, "#5d4037");
+}
+function drawPlayer() {
+  const x = P.x, f = P.face, y = GROUND;
+  if (P.inv > 0 && P.st === "roll") g.globalAlpha = .6;
+  if (P.st === "roll") { g.fillStyle = "#b71c1c"; g.beginPath(); g.arc(x, y - 10, 10, 0, 7); g.fill(); g.globalAlpha = 1; return; }
+  const body = P.flash > 0 ? "#fff" : "#b71c1c";
+  rect(x - 6, y - 8, 4, 8, "#263238"); rect(x + 2, y - 8, 4, 8, "#263238");          // 腿
+  rect(x - 8, y - 22, 16, 15, body); rect(x - 2, y - 22, 4, 6, "#fff");            // 校服、白衬衫领
+  g.fillStyle = "#f5c9a0"; g.beginPath(); g.arc(x, y - 30, 9, 0, 7); g.fill();       // 脸
+  rect(x - 9, y - 40, 18, 6, "#212121"); rect(x + f * 3 - 1, y - 32, 2, 3, "#000"); // 头发、眼睛
+  // 手和动作
+  let hx = x + f * 9, hy = y - 18;
+  if (P.st === "atk" && P.t < 0.2) hx = x + f * (14 + P.chain * 2);
+  if (P.st === "charge") { hx = x + f * 18; rect(x + f * 10 - (f < 0 ? 22 : 0), y - 20, 22, 3, "#fff"); }
+  if (P.st === "skill" && P.form === "normal") rect(x + f * 6 - (f < 0 ? 26 : 0), y - 24, 26, 2, "#fff");
+  rect(hx - 3, hy - 3, 6, 6, "#f5c9a0");
+  if (P.st === "shield") { g.strokeStyle = P.shieldAge < 0.2 ? "#80deea" : "#b0bec5"; g.lineWidth = 3; g.beginPath(); g.arc(x + f * 6, y - 20, 16, f > 0 ? -1.2 : 1.9, f > 0 ? 1.2 : 4.3); g.stroke(); }
+  if (P.st === "swallow") { g.fillStyle = "rgba(255,255,255,.5)"; for (let i = 0; i < 3; i++) rect(x + f * (14 + i * 9) - (f < 0 ? 6 : 0), y - 30 + i * 4 - 4, 6, 2, "#fff"); }
+  // 变身帽子
+  if (P.form === "ice") { rect(x - 4, y - 46, 8, 6, "#d7a86e"); g.fillStyle = "#f48fb1"; g.beginPath(); g.arc(x, y - 48, 6, 0, 7); g.fill(); }
+  if (P.form === "volt") { rect(x - 6, y - 48, 12, 8, "#fdd835"); rect(x - 2, y - 51, 4, 3, "#9e9e9e"); text("⚡", x, y - 41, 8, "#000"); }
+  if (P.st === "morph") { g.strokeStyle = FORMS[P.form].color; g.lineWidth = 2; g.beginPath(); g.arc(x, y - 22, 14 + P.t * 30, 0, 7); g.stroke(); }
+}
+function drawFoe(f) {
+  const x = f.x, y = GROUND + f.y, d = f.d;
+  if (f.hp <= 0) g.globalAlpha = f.flash / .12;
+  const tele = f.st === "tele" && Math.floor(f.t * 12) % 2 === 0;
+  const col = f.flash > 0 ? "#fff" : tele ? "#ff1744" : null;
+  if (f.type === "clock") { rect(x - 8, y - 20, 16, 16, col || "#90a4ae"); rect(x - 6, y - 4, 4, 4, "#455a64"); rect(x + 2, y - 4, 4, 4, "#455a64"); rect(x - f.face * 11 - 2, y - 15, 4, 8, "#ffca28"); rect(x + f.face * 3, y - 16, 3, 3, "#000"); }
+  if (f.type === "ice") { g.fillStyle = col || "#d7a86e"; g.beginPath(); g.moveTo(x - 6, y - 12); g.lineTo(x + 6, y - 12); g.lineTo(x, y); g.fill(); g.fillStyle = col || "#f48fb1"; g.beginPath(); g.arc(x, y - 16, 7, 0, 7); g.fill(); rect(x + f.face * 2 - 1, y - 18, 2, 2, "#000"); }
+  if (f.type === "volt") { rect(x - 9, y - 12, 18, 10, col || "#fdd835"); rect(x - f.face * 11, y - 9, 3, 4, "#9e9e9e"); rect(x + f.face * 5, y - 10, 2, 2, "#000"); rect(x - 7, y - 2, 3, 2, "#000"); rect(x + 4, y - 2, 3, 2, "#000"); }
+  if (f.type === "bear") {
+    rect(x - 20, y - 40, 40, 36, col || "#8d6e63"); rect(x - 14, y - 4, 10, 4, "#4e342e"); rect(x + 4, y - 4, 10, 4, "#4e342e");
+    g.fillStyle = col || "#8d6e63"; g.beginPath(); g.arc(x - 12, y - 42, 5, 0, 7); g.arc(x + 12, y - 42, 5, 0, 7); g.fill();
+    rect(x + f.face * 8 - 2, y - 34, 4, 4, "#000"); rect(x - f.face * 22 - 3, y - 30, 6, 12, "#ffca28");
+    if (f.armor) { g.strokeStyle = "#cfd8dc"; g.lineWidth = 3; g.strokeRect(x - 21, y - 41, 42, 38); for (let i = 0; i < f.armor; i++) rect(x - 12 + i * 9, y - 52, 7, 5, "#cfd8dc"); }
+    if (f.st === "tele" && f.atk.kind === "dash") text("冲!", x, y - 56, 10, "#ff1744");
+  }
+  if (f.freezeT > 0) { g.fillStyle = "rgba(179,229,252,.6)"; g.fillRect(x - d.w / 2 - 3, y - d.h - 4, d.w + 6, d.h + 4); }
+  if (f.stunT > 0) for (let i = 0; i < 3; i++) text("★", x + Math.cos(clock * 6 + i * 2.1) * 10, y - d.h - 6 + Math.sin(clock * 6 + i * 2.1) * 3, 8, "#ffeb3b");
+  if (!d.boss && f.hp > 0) { rect(x - 10, y - d.h - 6, 20, 2, "#000"); rect(x - 10, y - d.h - 6, 20 * f.hp / d.hp, 2, "#e53935"); if (f.stunG > 0) rect(x - 10, y - d.h - 3, 20 * f.stunG / d.stun, 1, "#ffeb3b"); }
+  g.globalAlpha = 1;
+}
+function drawHud() {
+  rect(0, 0, W, 30, "rgba(0,0,0,.55)");
+  text("库巴", 6, 12, 9, "#fff", "left"); rect(30, 5, 80, 6, "#000"); rect(30, 5, 80 * P.hp / 100, 6, "#43a047");
+  for (let i = 0; i < 3; i++) { rect(30 + i * 27, 15, 25, 5, "#000"); rect(30 + i * 27, 15, 25 * Math.max(0, Math.min(1, (P.en - i * 100) / 100)), 5, "#ffb300"); }
+  text(FORMS[P.form].name, 6, 25, 9, FORMS[P.form].color, "left");
+  const boss = foes.find(f => f.d.boss && f.hp > 0);
+  if (boss) { text("铁皮熊", 232, 12, 9, "#fff", "right"); rect(124, 16, 108, 5, "#000"); rect(124, 16, 108 * boss.hp / boss.d.hp, 5, "#e53935"); if (boss.stunG) rect(124, 22, 108 * boss.stunG / boss.d.stun, 2, "#ffeb3b"); }
+  else text(`第 ${Math.max(1, wave + 1)} / ${WAVES.length} 波`, 232, 14, 9, "#fff", "right");
+  if (combo > 1) text(`${combo} 连击`, 232, 50, 13, "#ffeb3b", "right");
+  rect(0, 290, W, 30, "rgba(0,0,0,.6)");
+  let hint = `● 攻击  ▼ 闪避  ▲ 大招  ▼● ${FORMS[P.form].skill}`;
+  if (alive().some(f => f.stunT > 0 && !f.d.boss && Math.abs(f.x - P.x) < 44) || stars.some(s => Math.abs(s.x - P.x) < 44)) hint = "按住 ● 吞掉!";
+  else if (P.en >= 300) hint = `▼▲ 超必杀:${FORMS[P.form].sup}!`;
+  else if (P.en >= 100) hint = `▲ ${FORMS[P.form].ult}(${Math.floor(P.en / 100)} 格)`;
+  text(hint, W / 2, 309, 10, "#fff");
+}
+function draw() {
+  g.save();
+  if (shakeT > 0) g.translate((Math.random() - .5) * 6, (Math.random() - .5) * 6);
+  drawBg();
+  for (const s of stars) text("★", s.x, s.y, 14, FORMS[s.form].color);
+  for (const f of foes) drawFoe(f);
+  drawPlayer();
+  for (const s of shots) { g.fillStyle = "#e1f5fe"; g.beginPath(); g.arc(s.x, s.y, 4, 0, 7); g.fill(); }
+  for (const p of fx) rect(p.x, p.y, 3, 3, p.c);
+  for (const n of nums) text(String(n.s), n.x, n.y, 10, n.c);
+  g.restore();
+  if (slowT > 0) { g.fillStyle = "rgba(79,195,247,.18)"; g.fillRect(0, 30, W, 260); text("慢动作", W / 2, 70, 12, "#b3e5fc"); }
+  drawHud();
+  if (msgT > 0) text(msg, W / 2, 100, 15, "#fff");
+  if (cine && cine.sup) {
+    g.fillStyle = Math.floor(cine.t * 10) % 2 ? FORMS[cine.form].color : "#000"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "rgba(0,0,0,.6)"; g.fillRect(0, 110, W, 100);
+    const k = Math.min(1, cine.t / 0.3);
+    text("超必杀!", W / 2, 135, 12 + 6 * k, "#ffeb3b");
+    text(cine.name, W / 2, 175, 16 + 14 * k, "#fff");
+    if (cine.low) text("绝境 ×2", W / 2, 200, 12, "#ff5252");
+  } else if (cine) {
+    g.fillStyle = "rgba(0,0,0,.85)"; g.fillRect(0, 0, W, H);
+    const k = Math.min(1, cine.t / 0.25);
+    text(cine.name, W / 2, 150, 14 + 10 * k, FORMS[cine.form].color);
+    text("★".repeat(cine.lv), W / 2, 185, 16, "#ffeb3b");
+  }
+  if (phase !== "fight") {
+    g.fillStyle = "rgba(0,0,0,.75)"; g.fillRect(0, 0, W, H);
+    if (phase === "title") {
+      text("库巴变变变", W / 2, 70, 20, "#ff5252"); text("战斗小样", W / 2, 92, 12, "#fff");
+      const L = ["● 点:三连击(第三下打飞)", "● 按住:蓄力斩(破熊的铁甲)", "▼ 点:翻滚(红光时翻 = 完美闪避)", "▼ 按住:翻滚后举盾(刚举起挨打 = 弹反)", "▼ 后马上 ●:技能", "怪晕了(冒星星):按住 ● 吞掉变身", "▲:大招(能量 1–3 格)", "满 3 格:▼ 后马上 ▲ = 超必杀"];
+      L.forEach((s, i) => text(s, W / 2, 122 + i * 18, 9, "#eee"));
+      text("按 ● 开始", W / 2, 280, 12, "#ffeb3b");
+    } else text(phase === "win" ? "打赢了!按 ● 再来" : "倒下了…按 ● 再来", W / 2, 160, 14, phase === "win" ? "#ffeb3b" : "#ef5350");
+  }
+}
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -4,7 +4,7 @@ CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fn
           -I../src -I.
 OUT := .build
 HDRS := $(wildcard ../src/*.h) $(wildcard *.h)
-TESTS := test_level test_body
+TESTS := test_level test_body test_play
 
 all: $(addprefix $(OUT)/,$(TESTS))
 	@for t in $(TESTS); do $(OUT)/$$t || exit 1; done
@@ -17,6 +17,10 @@ $(OUT)/test_level: test_level.c ../src/morph_level.c ../src/morph_levels.c $(HDR
 	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
 
 $(OUT)/test_body: test_body.c ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
+
+# 两个 morph_play_t 经假管道(duo.c)联机
+$(OUT)/test_play: test_play.c duo.c ../src/morph_play.c ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
 
 .PHONY: all

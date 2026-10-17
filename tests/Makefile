@@ -4,7 +4,7 @@ CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fn
           -I../src -I.
 OUT := .build
 HDRS := $(wildcard ../src/*.h) $(wildcard *.h)
-TESTS := test_level
+TESTS := test_level test_body
 
 all: $(addprefix $(OUT)/,$(TESTS))
 	@for t in $(TESTS); do $(OUT)/$$t || exit 1; done
@@ -14,6 +14,9 @@ $(OUT):
 	mkdir -p $@
 
 $(OUT)/test_level: test_level.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
+
+$(OUT)/test_body: test_body.c ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
 	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
 
 .PHONY: all

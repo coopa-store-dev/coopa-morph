@@ -1,7 +1,8 @@
 // src/morph_app.c —— 库巴变变变的入口表和流程(计划 1:试验关,照 coopa-fight 的 fight_app.c):
 //   首页「两人联机 / 回菜单」→ 找队友(kit_link,频道 MORPH_CH)→ 试验关。主动方是爸爸、被连方是库巴
 //   (计划 1 临时,选人在计划 2);断线时停在试验关上,盖一行「等队友回来」。
-// 按键:首页 ▲▼ 选、● 确定;找队友页 ● 回首页;试验关 ▲ 跳 / 扑腾、▼ 掉头(morph_keys.h),● 和长按不算。
+// 按键:首页 ▲▼ 选、● 确定;找队友页 ● 回首页;试验关 ▲ 跳 / 扑腾、▼ 掉头(morph_keys.h),● 长按回首页
+// (计划 1 临时),别的不算。
 // 一局和联机在 morph_play.c;画面在 morph_view.c。计划 1 没有存档。
 // 调试通道(devlink BOS1/2/3 → admin 'a' 'b' 'c',只在前台时认):'a' 一个人进试验关、'b' 摄像机步长 1 → 2 → 4 → 8 → 1、
 // 'c' 云和草丛开 / 关。
@@ -235,6 +236,10 @@ static void morph_leave(void) {
 
 static bool morph_input(const kit_input_t *in) {
     if (s_page == PG_GAME) {
+        if (in->key == KIT_KEY_OK && in->long_press) {  // 计划 1 临时:● 长按回首页(真卡实验出得来)
+            to_title();
+            return false;
+        }
         int k = morph_key_of((uint8_t)in->key, in->long_press);
         if (k >= 0) morph_mp_key(&s_play, (uint8_t)k);
         return false;

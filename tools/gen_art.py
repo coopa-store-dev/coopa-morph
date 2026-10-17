@@ -75,15 +75,17 @@ POSES = [
     ("JUMP", "跳(接力追打)"),
 ]
 # 顺序 = morph_foe_img_t:(名字, 说明, 宽, 高),每只两帧 _a / _b,另生成翻转的(朝左)
-FOES = [("CLOCK", "发条兵(大发条兵也用它)", 16, 16), ("ICE", "冰淇淋怪", 16, 16), ("VOLT", "电池虫", 16, 16),
-        ("BEAR", "发条铁皮熊", 24, 24)]
+# 只有 _a 一帧的(Boss 大图省地方)两帧都用它
+FOES = [("CLOCK", "发条兵(大发条兵也用它)", 16, 16), ("ICE", "冰淇淋怪", 16, 16), ("VOLT", "电池虫(大电池兵也用它)", 16, 16),
+        ("BEAR", "发条铁皮熊", 24, 24), ("SNOW", "雪球兵(大雪人也用它)", 16, 16), ("FROG", "弹簧蛙", 16, 16),
+        ("MAGNET", "磁铁怪", 16, 16), ("ROCKET", "烟花炮", 16, 16), ("COIL", "线圈", 16, 16),
+        ("ICEKING", "冰淇淋大王", 24, 24), ("DYNAMO", "发电大魔像", 24, 24), ("DEMON", "玩具魔王", 24, 24)]
 # 顺序 = morph_fx_t:不翻转,大小各不一样
-FX = [("HAT_ICE", "冰淇淋帽子"), ("HAT_VOLT", "电池帽子"), ("STAR", "晕的星星"), ("SPARK", "打中的火花"), ("ICEBALL", "冰球")]
+FX = [("HAT_ICE", "冰淇淋帽子"), ("HAT_VOLT", "电池帽子"), ("STAR", "晕的星星"), ("SPARK", "打中的火花"), ("ICEBALL", "冰球"),
+      ("HAT_SPRING", "弹簧帽子"), ("HAT_MAGNET", "磁铁帽子"), ("HAT_ROCKET", "火箭帽子"), ("SNOWBALL", "雪球"),
+      ("FIREBALL", "火球")]
 # 顺序 = morph_tile_img_t;level = 关卡格子(要正好一格:16×16 放大两倍 = ML_TILE)
-TILES = [
-    ("TOP", "地面顶(草)", True), ("FILL", "地面里(土)", True), ("BRICK", "砖(悬空的实心格)", True),
-    ("PLAT", "单向平台(木板)", True), ("CLOUD", "云(装饰)", False), ("BUSH", "草丛(装饰)", False),
-]
+TILES = [("TOP", "地面顶(草;战斗页平铺,每关染不同颜色)", True)]
 POSE_W = POSE_H = 16
 TILE_SCALE = 2
 
@@ -179,7 +181,7 @@ def header() -> str:
              + "\n" + "\n".join(f"//   MF_{f}:{d}({w}×{h})" for f, d, w, h in FOES) + "\n" + "\n".join(f"//   MX_{x}:{d}" for x, d in FX))
     return f"""// src/morph_art.h —— 人物、格子、装饰的像素画(tools/gen_art.py 从 art/*.txt 生成,勿手改)。
 // 全是常量图,放在游戏块(flash)里,LVGL 直接读,不进堆。
-// 人物 {POSE_W}×{POSE_H} RGB565A8,原图朝右,facing_left 给水平翻转的那份;画面上 lv_image_set_scale 放大两倍。下标 ch:{who}。
+// 人物 {POSE_W}×{POSE_H} 的字符画生成时放大两倍,RGB565A8,原图朝右,facing_left 给水平翻转的那份。下标 ch:{who}。
 // 格子和装饰生成时已放大 {TILE_SCALE} 倍(平铺时 LVGL 不放大),关卡格子正好 ML_TILE×ML_TILE;全不透明的是 RGB565。
 {notes}
 #pragma once
@@ -194,12 +196,11 @@ typedef enum {{ {tile}, MT_IMG_COUNT }} morph_tile_img_t;
 typedef enum {{ {foe}, MF_COUNT }} morph_foe_img_t;
 typedef enum {{ {fx}, MX_COUNT }} morph_fx_t;
 
-const lv_image_dsc_t *morph_art_pose(uint8_t ch, uint8_t pose, bool facing_left);  // 越界返回库巴站立
 const lv_image_dsc_t *morph_art_tile(uint8_t t);                                    // 越界返回 NULL
-const lv_image_dsc_t *morph_art_foe(uint8_t f, uint8_t frame, bool facing_left);    // frame 0 / 1;越界返回发条兵
 const lv_image_dsc_t *morph_art_fx(uint8_t x);                                      // 越界返回 NULL
-// 战斗页用的:生成时已放大两倍(画面上不用再放大,真卡上省一大截刷屏时间);参数和上面一样
+// 人物只有生成时已放大两倍的图(战斗页原样画,真卡上省一大截刷屏时间;地图、首页上缩放着画);越界返回库巴站立
 const lv_image_dsc_t *morph_art_pose2(uint8_t ch, uint8_t pose, bool facing_left);
+// 怪只有两倍图:frame 0 / 1(只画了一帧的两帧一样);越界返回发条兵
 const lv_image_dsc_t *morph_art_foe2(uint8_t f, uint8_t frame, bool facing_left);
 const lv_image_dsc_t *morph_art_fx2(uint8_t x);
 """
@@ -208,28 +209,10 @@ const lv_image_dsc_t *morph_art_fx2(uint8_t x);
 def source(chars: list[dict[str, list[str]]], tiles: dict[str, list[str]], foes: dict[str, list[str]], fx: dict[str, list[str]]) -> str:
     out = ["// src/morph_art.c —— tools/gen_art.py 从 art/*.txt 生成,勿手改。见 morph_art.h。",
            '#include "morph_art.h"', "", "#include <stddef.h>", ""]
-    pose_dsc = []
-    for (cid, _), arts in zip(CHARS, chars):
-        row = []
-        for p, _ in POSES:
-            rows = arts[p.lower()]
-            base = f"{cid.upper()}_{p}"
-            out += [array(base + "_R", rgb565a8(rows)), array(base + "_L", rgb565a8([r[::-1] for r in rows])), ""]
-            row.append(f"        {{ {dsc(base + '_R', rows)},\n          {dsc(base + '_L', [r[::-1] for r in rows])} }},")
-        pose_dsc.append("    {\n" + "\n".join(row) + "\n    },")
     big = {t: scale(tiles[t.lower()], TILE_SCALE) for t, _, _ in TILES}
     for t, _, _ in TILES:
         rows = big[t]
         out += [array(f"TILE_{t}", rgb565(rows) if opaque(rows) else rgb565a8(rows)), ""]
-    foe_dsc = []
-    for f, _, _, _ in FOES:
-        row = []
-        for fr in "ab":
-            rows = foes[f"{f.lower()}_{fr}"]
-            base = f"FOE_{f}_{fr.upper()}"
-            out += [array(base + "_R", rgb565a8(rows)), array(base + "_L", rgb565a8([r[::-1] for r in rows])), ""]
-            row.append(f"        {{ {dsc(base + '_R', rows)},\n          {dsc(base + '_L', [r[::-1] for r in rows])} }},")
-        foe_dsc.append("    {\n" + "\n".join(row) + "\n    },")
     for x, _ in FX:
         out += [array(f"FX_{x}", rgb565a8(fx[x.lower()])), ""]
     pose2, foe2 = [], []
@@ -244,39 +227,25 @@ def source(chars: list[dict[str, list[str]]], tiles: dict[str, list[str]], foes:
     for f, _, _, _ in FOES:
         row = []
         for fr in "ab":
+            if f"{f.lower()}_{fr}" not in foes:   # 只画了一帧:用第一帧的数组
+                fr = "a"
             r2 = scale(foes[f"{f.lower()}_{fr}"], 2)
             base = f"FOE_{f}_{fr.upper()}_2X"
-            out += [array(base + "_R", rgb565a8(r2)), array(base + "_L", rgb565a8([r[::-1] for r in r2])), ""]
+            if fr == "b" or not row:
+                out += [array(base + "_R", rgb565a8(r2)), array(base + "_L", rgb565a8([r[::-1] for r in r2])), ""]
             row.append(f"        {{ {dsc(base + '_R', r2)},\n          {dsc(base + '_L', [r[::-1] for r in r2])} }},")
         foe2.append("    {\n" + "\n".join(row) + "\n    },")
     for x, _ in FX:
         out += [array(f"FX_{x}_2X", rgb565a8(scale(fx[x.lower()], 2))), ""]
-    out.append(f"static const lv_image_dsc_t POSE[{len(CHARS)}][MA_POSES][2] = {{  // [ch][pose][朝左]")
-    out += pose_dsc + ["};", ""]
     out.append("static const lv_image_dsc_t TILE[MT_IMG_COUNT] = {")
     out += [f"    {dsc(f'TILE_{t}', big[t], not opaque(big[t]))}," for t, _, _ in TILES] + ["};", ""]
     out += [
-        "const lv_image_dsc_t *morph_art_pose(uint8_t ch, uint8_t pose, bool facing_left) {",
-        f"    if (ch >= {len(CHARS)} || pose >= MA_POSES) {{",
-        "        ch = 0;",
-        "        pose = MA_IDLE;",
-        "    }",
-        "    return &POSE[ch][pose][facing_left ? 1 : 0];",
-        "}",
-        "",
         "const lv_image_dsc_t *morph_art_tile(uint8_t t) { return t < MT_IMG_COUNT ? &TILE[t] : NULL; }",
         "",
     ]
-    out.append("static const lv_image_dsc_t FOE[MF_COUNT][2][2] = {  // [怪][帧][朝左]")
-    out += foe_dsc + ["};", ""]
     out.append("static const lv_image_dsc_t FX[MX_COUNT] = {")
     out += [f"    {dsc(f'FX_{x}', fx[x.lower()])}," for x, _ in FX] + ["};", ""]
     out += [
-        "const lv_image_dsc_t *morph_art_foe(uint8_t f, uint8_t frame, bool facing_left) {",
-        "    if (f >= MF_COUNT) f = MF_CLOCK;",
-        "    return &FOE[f][frame & 1][facing_left ? 1 : 0];",
-        "}",
-        "",
         "const lv_image_dsc_t *morph_art_fx(uint8_t x) { return x < MX_COUNT ? &FX[x] : NULL; }",
         "",
     ]
@@ -320,9 +289,12 @@ def main() -> None:
         if level and (len(rows[0]), len(rows)) != (16, 16):
             sys.exit(f"art/tiles.txt「{t.lower()}」:关卡格子要 16×16,现在是 {len(rows[0])}×{len(rows)}")
     foes = parse(ART / "foes.txt")
-    need(foes, [f"{f.lower()}_{fr}" for f, _, _, _ in FOES for fr in "ab"], "art/foes.txt", None)
+    names = [f"{f.lower()}_{fr}" for f, _, _, _ in FOES for fr in "ab" if fr == "a" or f"{f.lower()}_b" in foes]
+    need(foes, names, "art/foes.txt", None)
     for f, _, w, h in FOES:
         for fr in "ab":
+            if f"{f.lower()}_{fr}" not in foes:
+                continue
             rows = foes[f"{f.lower()}_{fr}"]
             if (len(rows[0]), len(rows)) != (w, h):
                 sys.exit(f"art/foes.txt「{f.lower()}_{fr}」:要 {w}×{h},现在是 {len(rows[0])}×{len(rows)}")

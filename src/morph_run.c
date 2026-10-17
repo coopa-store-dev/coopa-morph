@@ -109,7 +109,7 @@ static void begin_chapter(morph_run_t *r) {
         int16_t maxhp = (int16_t)(100 + 20 * pf->lv[UPG_HP]);
         r->carry[p] = (mbt_carry_t){ maxhp, (int16_t)(50 * pf->lv[UPG_EN]), FORM_NORMAL, maxhp, pf->lv[UPG_ATK], pf->lv[UPG_ULT] };
     }
-    r->gained = 0; r->first_clear = false;
+    r->gained = 0; r->first_clear = false; r->played = r->chapter;
     r->r = r->i = 0; r->choice = 0; r->walking = false;
     gen_map(r);
     r->phase = RUN_MAP;

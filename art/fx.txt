@@ -52,3 +52,51 @@ kwhhhk
 khhhHk
 khhHHk
 .kkkk.
+# 弹簧帽子:灰色弹簧。
+== hat_spring
+..kkkk..
+.khhhhk.
+..kHHk..
+.khhhhk.
+..kHHk..
+.khhhhk.
+..kHHk..
+.kkkkkk.
+# 磁铁帽子:小红马蹄磁铁。
+== hat_magnet
+.kkkkkk.
+krrrrrrk
+krrkkrrk
+krk..krk
+krk..krk
+khk..khk
+khk..khk
+.k....k.
+# 火箭帽子:小火箭,红头白身子。
+== hat_rocket
+...kk...
+..krrk..
+..kwwk..
+..kwBk..
+..kwwk..
+.kkwwkk.
+.kokkok.
+..y..y..
+# 雪球。
+== snowball
+.kkkk.
+kwwwhk
+kwwwhk
+kwwhHk
+khhHHk
+.kkkk.
+# 火球(人的火箭、怪的火箭都用它)。
+== fireball
+..yyyy..
+.yoooy..
+yoorrooy
+yorrrroy
+yorrrroy
+yoorrooy
+.yoooy..
+..yyyy..

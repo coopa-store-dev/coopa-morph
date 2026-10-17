@@ -27,7 +27,7 @@ typedef struct {
 } spr_t;
 
 static lv_obj_t *s_scr;
-static bool s_battle;   // 现在建的是战斗页(否则是地图页)
+static morph_gfx_page_t s_kind;
 
 static void spr_new(spr_t *s, lv_obj_t *parent) {
     memset(s, 0, sizeof(*s));
@@ -68,7 +68,7 @@ static void spr_rot(spr_t *s, int rot) {
     lv_image_set_rotation(s->o, rot);
 }
 
-// ---------- 文字、条 ----------
+// ---------- 文字、条、方块 ----------
 static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *f, uint32_t color, int x, int y, int w, bool center) {
     lv_obj_t *t = uk_text(parent, f, color, "");
     if (w) { lv_obj_set_width(t, w); lv_obj_set_style_text_align(t, center ? LV_TEXT_ALIGN_CENTER : LV_TEXT_ALIGN_LEFT, 0); }
@@ -93,24 +93,79 @@ static void bar_set(bar_t *b, int v, int max, uint32_t color) {
     if (color != b->color) { b->color = color; lv_obj_set_style_bg_color(b->fill, lv_color_hex(color), 0); }
 }
 static void bar_show(bar_t *b, bool on) { show(b->bg, on); show(b->fill, on && b->cur > 0); }
+// 一块会挪的色块(冰块、冰盾、雷劈):记着位置,没变不碰
+typedef struct { lv_obj_t *o; int16_t x, y; } box_t;
+static void box_new(box_t *b, lv_obj_t *parent, int w, int h, uint32_t color, uint8_t opa) {
+    b->o = uk_rect(parent, 0, 0, w, h, color);
+    lv_obj_set_style_bg_opa(b->o, opa, 0);
+    b->x = b->y = 0;
+    show(b->o, false);
+}
+static void box_at(box_t *b, int x, int y) {
+    if (x != b->x || y != b->y) { b->x = (int16_t)x; b->y = (int16_t)y; lv_obj_set_pos(b->o, x, y); }
+    show(b->o, true);
+}
 
-// ---------- 名字 ----------
-static const char *const FORM_NAME[FORM_COUNT] = { TX_F_NORMAL, TX_F_ICE, TX_F_VOLT };
-static const char *const SKILL_NAME[FORM_COUNT] = { TX_SK_NORMAL, TX_SK_ICE, TX_SK_VOLT };
-static const char *const ULT_NAME[FORM_COUNT] = { TX_UL_NORMAL, TX_UL_ICE, TX_UL_VOLT };
-static const char *const SUP_NAME[FORM_COUNT] = { TX_SU_NORMAL, TX_SU_ICE, TX_SU_VOLT };
-static const uint32_t FORM_COLOR[FORM_COUNT] = { 0xFF7043, 0xF48FB1, 0xFDD835 };
+// ---------- 名字、颜色 ----------
+static const char *const FORM_NAME[FORM_COUNT] = { TX_F_NORMAL, TX_F_ICE, TX_F_VOLT, TX_F_SPRING, TX_F_MAGNET, TX_F_ROCKET };
+static const char *const SKILL_NAME[FORM_COUNT] = { TX_SK_NORMAL, TX_SK_ICE, TX_SK_VOLT, TX_SK_SPRING, TX_SK_MAGNET, TX_SK_ROCKET };
+static const char *const ULT_NAME[FORM_COUNT] = { TX_UL_NORMAL, TX_UL_ICE, TX_UL_VOLT, TX_UL_SPRING, TX_UL_MAGNET, TX_UL_ROCKET };
+static const char *const SUP_NAME[FORM_COUNT] = { TX_SU_NORMAL, TX_SU_ICE, TX_SU_VOLT, TX_SU_SPRING, TX_SU_MAGNET, TX_SU_ROCKET };
+static const uint32_t FORM_COLOR[FORM_COUNT] = { 0xFF7043, 0xF48FB1, 0xFDD835, 0xB0BEC5, 0xE53935, 0xFFA726 };
+static const uint8_t FORM_HAT[FORM_COUNT] = { 0, MX_HAT_ICE, MX_HAT_VOLT, MX_HAT_SPRING, MX_HAT_MAGNET, MX_HAT_ROCKET };
 static const char *const SAY_TEXT[SAY_COUNT] = {
     TX_S_START, TX_S_ELITE, TX_S_BOSS, TX_S_ARMOR_CRACK, TX_S_ARMOR_BREAK, TX_S_STUN_EAT, TX_S_STUN_HIT,
     TX_S_NO_ENERGY, TX_S_RELAY, TX_S_MORPH, TX_S_PERFECT, TX_S_PARRY, TX_S_PARRY_ARMOR, TX_S_LOST_FORM, TX_S_DOWN,
     TX_S_ALL_DOWN, TX_S_REVIVED, TX_S_SUMMON, TX_S_LOW, TX_S_COMBO,
+    TX_S_GUARD, TX_S_GUARD_BREAK, TX_S_TURN, TX_S_TRAPPED, TX_S_FREED, TX_S_SHIELDED, TX_S_COIL_DOWN, TX_S_COIL_BACK,
+    TX_S_COIL_OPEN, TX_S_PHASE2, TX_S_RAGE, TX_S_REFLECT, TX_S_WAVE,
 };
-const char *morph_gfx_hero_name(int p) { return p ? TX_DAD : TX_KID; }
+// 合体大招的名字:[小的变身][大的变身]
+static const char *const COMBO_NAME[FORM_COUNT][FORM_COUNT] = {
+    { TX_CO_NN, TX_CO_NI, TX_CO_NV, TX_CO_NS, TX_CO_NM, TX_CO_NR },
+    { NULL, TX_CO_II, TX_CO_IV, TX_CO_IS, TX_CO_IM, TX_CO_IR },
+    { NULL, NULL, TX_CO_VV, TX_CO_VS, TX_CO_VM, TX_CO_VR },
+    { NULL, NULL, NULL, TX_CO_SS, TX_CO_SM, TX_CO_SR },
+    { NULL, NULL, NULL, NULL, TX_CO_MM, TX_CO_MR },
+    { NULL, NULL, NULL, NULL, NULL, TX_CO_RR },
+};
 static const char *combo_name(uint8_t a, uint8_t b) {
     if (a > b) { uint8_t t = a; a = b; b = t; }
-    if (a == b) return a == FORM_NORMAL ? TX_CO_NN : a == FORM_ICE ? TX_CO_II : TX_CO_VV;
-    if (a == FORM_NORMAL) return b == FORM_ICE ? TX_CO_NI : TX_CO_NV;
-    return TX_CO_IV;
+    return a < FORM_COUNT && b < FORM_COUNT ? COMBO_NAME[a][b] : TX_CO_NN;
+}
+static const char *const CH_NAME[MR_CHAPTERS] = { TX_CH1, TX_CH2, TX_CH3, TX_CH4 };
+const char *morph_gfx_chapter_name(int ch) { return CH_NAME[ch >= 0 && ch < MR_CHAPTERS ? ch : 0]; }
+const char *morph_gfx_hero_name(int p) { return p ? TX_DAD : TX_KID; }
+static const char *foe_name(uint8_t type) {
+    switch (type) {
+        case ET_BEAR: return TX_E_BEAR;
+        case ET_SNOWMAN: return TX_E_SNOWMAN;
+        case ET_ICEKING: return TX_E_ICEKING;
+        case ET_BIGVOLT: return TX_E_BIGVOLT;
+        case ET_DYNAMO: return TX_E_DYNAMO;
+        case ET_DEMON: return TX_E_DEMON;
+        default: return TX_E_BIGCLOCK;
+    }
+}
+// 每关的样子:天、Boss 战的天、楼、窗、地面染色(透明度 0 = 原样草地)、地图底色
+typedef struct { uint32_t sky, boss_sky, bld, win, ground; uint8_t ground_opa; uint32_t map; } look_t;
+static const look_t LOOK[MR_CHAPTERS] = {
+    { 0x5C6BC0, 0x4A148C, 0x3949AB, 0xFFE082, 0, 0, 0x33691E },
+    { 0x81D4FA, 0x0277BD, 0xE1F5FE, 0xF48FB1, 0xFFFFFF, LV_OPA_60, 0x0288D1 },
+    { 0x37474F, 0x212121, 0x546E7A, 0xFDD835, 0x795548, LV_OPA_50, 0x455A64 },
+    { 0x4A148C, 0x1A0033, 0x311B92, 0xE53935, 0x6A1B9A, LV_OPA_50, 0x4A148C },
+};
+static const look_t *look(const morph_run_t *r) { return &LOOK[r->chapter < MR_CHAPTERS ? r->chapter : 0]; }
+static const uint8_t FOE_IMG[ET_COUNT] = {
+    [ET_CLOCK] = MF_CLOCK, [ET_ICE] = MF_ICE, [ET_VOLT] = MF_VOLT, [ET_BIGCLOCK] = MF_CLOCK, [ET_BEAR] = MF_BEAR,
+    [ET_SNOW] = MF_SNOW, [ET_FROG] = MF_FROG, [ET_SNOWMAN] = MF_SNOW, [ET_ICEKING] = MF_ICEKING, [ET_MAGNET] = MF_MAGNET,
+    [ET_ROCKET] = MF_ROCKET, [ET_BIGVOLT] = MF_VOLT, [ET_DYNAMO] = MF_DYNAMO, [ET_COIL] = MF_COIL, [ET_DEMON] = MF_DEMON,
+};
+
+morph_gfx_page_t morph_gfx_page_for(const morph_run_t *r) {
+    if (r->phase == RUN_BATTLE) return GP_BATTLE;
+    if (r->phase == RUN_MAP || r->phase == RUN_EVENT) return GP_MAP;
+    return GP_HUB;
 }
 
 // =====================================================================================================
@@ -118,8 +173,8 @@ static const char *combo_name(uint8_t a, uint8_t b) {
 // =====================================================================================================
 typedef struct { lv_obj_t *l; int32_t t; int16_t x, y; } num_t;
 static struct {
-    lv_obj_t *world;             // 场地上的东西都挂在它下面
-    spr_t hero[2], hat[2], foe[MBT_MAXF], dizzy[MBT_MAXF], shot[MBT_MAXSHOT], star[MBT_MAXSTAR], spark[SPARKS];
+    spr_t hero[2], hat[2], foe[MBT_MAXF], dizzy[MBT_MAXF], shot[MBT_MAXSHOT], fshot[MBT_MAXFSHOT], star[MBT_MAXSTAR],
+        spark[SPARKS];
     int32_t spark_t[SPARKS];
     bar_t fhp[MBT_MAXF];
     lv_obj_t *pip[3];
@@ -127,6 +182,8 @@ static struct {
     bar_t hp[2], en[2][3];
     bar_t boss; lv_obj_t *boss_name;
     lv_obj_t *say, *combo, *hint[2], *slow, *slow_l, *hi5[2];
+    box_t ice[2], guard, bolt_mark, bolt, zap;
+    int32_t bolt_t, zap_t;
     int8_t form_now[2];          // 顶上一条显示的变身(-1 = 还没写)
     int32_t say_t;
     num_t num[NUMS];
@@ -145,41 +202,46 @@ static void hud_hero(int p, int nh) {
     for (int k = 0; k < 3; k++) bar_new(&B.en[p][k], s_scr, x0 + k * (ew + 2), 22, ew, 4, 0xFFB300);
 }
 
-void morph_gfx_battle(lv_obj_t *scr, const morph_run_t *r) {
-    morph_gfx_destroy();
-    s_scr = scr; s_battle = true;
+static void build_battle(lv_obj_t *scr, const morph_run_t *r) {
     memset(&B, 0, sizeof(B));
     B.form_now[0] = B.form_now[1] = -1;
+    const look_t *lk = look(r);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x1D1B22), 0);
     bool boss = r->node[r->r][r->i].type == NODE_BOSS;
-    // 背景:天、玩具工厂的楼、地面(背景不动,只建一次)
-    uk_rect(scr, 0, HUD_H, 240, GROUND - HUD_H, boss ? 0x4A148C : 0x5C6BC0);
-    uk_rect(scr, 0, 150, 40, GROUND - 150, 0x3949AB);
-    uk_rect(scr, 50, 120, 34, GROUND - 120, 0x3949AB);
-    uk_rect(scr, 150, 135, 46, GROUND - 135, 0x3949AB);
-    uk_rect(scr, 206, 110, 34, GROUND - 110, 0x3949AB);
-    for (int i = 0; i < 6; i++) uk_rect(scr, 58 + (i % 2) * 14, 130 + (i / 2) * 26, 8, 10, 0xFFE082);
+    // 背景:天、楼、地面(背景不动,只建一次)
+    uk_rect(scr, 0, HUD_H, 240, GROUND - HUD_H, boss ? lk->boss_sky : lk->sky);
+    uk_rect(scr, 0, 150, 40, GROUND - 150, lk->bld);
+    uk_rect(scr, 50, 120, 34, GROUND - 120, lk->bld);
+    uk_rect(scr, 150, 135, 46, GROUND - 135, lk->bld);
+    uk_rect(scr, 206, 110, 34, GROUND - 110, lk->bld);
+    for (int i = 0; i < 6; i++) uk_rect(scr, 58 + (i % 2) * 14, 130 + (i / 2) * 26, 8, 10, lk->win);
     lv_obj_t *g = lv_image_create(scr);
     lv_image_set_src(g, morph_art_tile(MT_IMG_TOP));
     lv_obj_set_size(g, 240, HINT_Y - GROUND);
     lv_image_set_inner_align(g, LV_IMAGE_ALIGN_TILE);
     lv_obj_set_pos(g, 0, GROUND);
-    // 场地上的东西
-    B.world = lv_obj_create(scr);
-    lv_obj_remove_style_all(B.world);
-    lv_obj_set_size(B.world, 240, GROUND + 8);
-    lv_obj_set_pos(B.world, 0, 0);
-    for (int i = 0; i < MBT_MAXF; i++) {
-        spr_new(&B.foe[i], B.world); spr_new(&B.dizzy[i], B.world);
-        bar_new(&B.fhp[i], B.world, 0, 0, 20, 2, 0xE53935); bar_show(&B.fhp[i], false);
+    if (lk->ground_opa) {
+        lv_obj_set_style_image_recolor(g, lv_color_hex(lk->ground), 0);
+        lv_obj_set_style_image_recolor_opa(g, lk->ground_opa, 0);
     }
-    for (int i = 0; i < 3; i++) { B.pip[i] = uk_rect(B.world, 0, 0, 7, 4, 0xCFD8DC); show(B.pip[i], false); }
-    for (int p = 0; p < 2; p++) { spr_new(&B.hero[p], B.world); spr_new(&B.hat[p], B.world); }
-    for (int i = 0; i < MBT_MAXSHOT; i++) spr_new(&B.shot[i], B.world);
-    for (int i = 0; i < MBT_MAXSTAR; i++) spr_new(&B.star[i], B.world);
-    for (int i = 0; i < SPARKS; i++) spr_new(&B.spark[i], B.world);
-    for (int i = 0; i < NUMS; i++) { B.num[i].l = label(B.world, UK_F12, 0xFFFFFF, 0, 0, 0, false); show(B.num[i].l, false); }
-    for (int p = 0; p < 2; p++) { B.hi5[p] = label(B.world, UK_F12, 0xFFEB3B, 0, 0, 0, false); uk_set_text(B.hi5[p], TX_HIGHFIVE); show(B.hi5[p], false); }
+    // 场地上的东西(建的先后 = 叠的先后)
+    box_new(&B.bolt_mark, scr, 44, 4, 0xFFEB3B, LV_OPA_COVER);
+    box_new(&B.zap, scr, 240, 8, 0xFFEB3B, LV_OPA_70);
+    for (int i = 0; i < MBT_MAXF; i++) {
+        spr_new(&B.foe[i], scr); spr_new(&B.dizzy[i], scr);
+        bar_new(&B.fhp[i], scr, 0, 0, 20, 2, 0xE53935); bar_show(&B.fhp[i], false);
+    }
+    box_new(&B.guard, scr, 5, 40, 0x80DEEA, LV_OPA_80);
+    for (int i = 0; i < 3; i++) { B.pip[i] = uk_rect(scr, 0, 0, 7, 4, 0xCFD8DC); show(B.pip[i], false); }
+    for (int p = 0; p < 2; p++) { spr_new(&B.hero[p], scr); spr_new(&B.hat[p], scr); }
+    for (int p = 0; p < 2; p++) box_new(&B.ice[p], scr, 30, 38, 0xB3E5FC, LV_OPA_60);
+    for (int i = 0; i < MBT_MAXSHOT; i++) spr_new(&B.shot[i], scr);
+    for (int i = 0; i < MBT_MAXFSHOT; i++) spr_new(&B.fshot[i], scr);
+    for (int i = 0; i < MBT_MAXSTAR; i++) spr_new(&B.star[i], scr);
+    for (int i = 0; i < SPARKS; i++) spr_new(&B.spark[i], scr);
+    box_new(&B.bolt, scr, 8, GROUND - HUD_H, 0xFFF59D, LV_OPA_COVER);
+    for (int i = 0; i < NUMS; i++) { B.num[i].l = label(scr, UK_F12, 0xFFFFFF, 0, 0, 0, false); show(B.num[i].l, false); }
+    for (int p = 0; p < 2; p++) { B.hi5[p] = label(scr, UK_F12, 0xFFEB3B, 0, 0, 0, false); uk_set_text(B.hi5[p], TX_HIGHFIVE); show(B.hi5[p], false); }
     // 慢动作的罩子
     B.slow = uk_rect(scr, 0, HUD_H, 240, GROUND - HUD_H, 0x4FC3F7);
     lv_obj_set_style_bg_opa(B.slow, LV_OPA_20, 0);
@@ -187,7 +249,7 @@ void morph_gfx_battle(lv_obj_t *scr, const morph_run_t *r) {
     B.slow_l = label(scr, UK_F12, 0xB3E5FC, 0, 70, 240, true);
     uk_set_text(B.slow_l, TX_SLOW);
     show(B.slow_l, false);
-    // 顶上一条、boss 血条、底下提示
+    // 顶上一条、Boss 血条、底下提示
     uk_rect(scr, 0, 0, 240, HUD_H, 0x111111);
     for (int p = 0; p < r->nh; p++) hud_hero(p, r->nh);
     bar_new(&B.boss, scr, 20, 34, 200, 5, 0xE53935); bar_show(&B.boss, false);
@@ -217,26 +279,30 @@ static void say_text(const char *s) {
     B.say_t = 1300;
 }
 
+static num_t *free_num(void) {
+    for (int i = 0; i < NUMS; i++) if (B.num[i].t <= 0) return &B.num[i];
+    return &B.num[0];
+}
+
 void morph_gfx_battle_event(const morph_run_t *r, const mbt_ev_t *e) {
-    if (!s_battle) return;
+    if (!s_scr || s_kind != GP_BATTLE) return;
     char buf[64];
     switch (e->type) {
         case BE_HIT: {
-            num_t *n = &B.num[0];
-            for (int i = 0; i < NUMS; i++) if (B.num[i].t <= 0) { n = &B.num[i]; break; }
-            snprintf(buf, sizeof(buf), "%d", e->v);
+            num_t *n = free_num();
+            if (e->v == 0) snprintf(buf, sizeof(buf), "%s", TX_IMMUNE);
+            else snprintf(buf, sizeof(buf), "%d", e->v);
             uk_set_text(n->l, buf);
-            lv_obj_set_style_text_color(n->l, lv_color_hex(e->a & 2 ? 0x4FC3F7 : 0xFFFFFF), 0);
+            lv_obj_set_style_text_color(n->l, lv_color_hex(e->a & 4 || !e->v ? 0x9E9E9E : e->a & 2 ? 0x4FC3F7 : 0xFFFFFF), 0);
             n->t = 800; n->x = e->x; n->y = (int16_t)(GROUND + e->y - 10);
             show(n->l, true);
-            for (int i = 0; i < SPARKS; i++)
+            for (int i = 0; i < SPARKS && e->v; i++)
                 if (B.spark_t[i] <= 0) { B.spark_t[i] = 150; spr_put(&B.spark[i], e->a & 1 ? morph_art_fx2(MX_SPARK) : morph_art_fx(MX_SPARK), 1, e->x, GROUND + e->y + 10); break; }
             sfx_play(SFX_HIT);
             break;
         }
         case BE_PHIT: {
-            num_t *n = &B.num[0];
-            for (int i = 0; i < NUMS; i++) if (B.num[i].t <= 0) { n = &B.num[i]; break; }
+            num_t *n = free_num();
             snprintf(buf, sizeof(buf), e->v < 0 ? "+%d" : "%d", e->v < 0 ? -e->v : e->v);
             uk_set_text(n->l, buf);
             lv_obj_set_style_text_color(n->l, lv_color_hex(e->v < 0 ? 0x81C784 : 0xEF5350), 0);
@@ -245,14 +311,38 @@ void morph_gfx_battle_event(const morph_run_t *r, const mbt_ev_t *e) {
             if (e->v > 0) sfx_play(SFX_HIT);
             break;
         }
-        case BE_SAY:
-            if (e->a == SAY_MORPH) snprintf(buf, sizeof(buf), TX_S_MORPH, morph_gfx_hero_name(e->who), FORM_NAME[e->v % FORM_COUNT]);
-            else if (e->a == SAY_DOWN || e->a == SAY_REVIVED) snprintf(buf, sizeof(buf), SAY_TEXT[e->a], morph_gfx_hero_name(e->who));
-            else snprintf(buf, sizeof(buf), "%s", e->a < SAY_COUNT ? SAY_TEXT[e->a] : "");
+        case BE_SAY: {
+            const char *t = e->a < SAY_COUNT ? SAY_TEXT[e->a] : "";
+            if (r->nh == 1 && e->a == SAY_GUARD) t = TX_S_GUARD1;
+            if (r->nh == 1 && e->a == SAY_COIL_DOWN) t = TX_S_COIL_DOWN1;
+            if (e->a == SAY_BOSS || e->a == SAY_ELITE) {   // 写上是谁
+                uint8_t type = ET_BIGCLOCK;
+                for (int i = 0; i < MBT_MAXF; i++)
+                    if (r->bt.f[i].used && (morph_foes[r->bt.f[i].type].boss || morph_foes[r->bt.f[i].type].elite)) type = r->bt.f[i].type;
+                snprintf(buf, sizeof(buf), t, foe_name(type));
+            } else if (e->a == SAY_MORPH) snprintf(buf, sizeof(buf), TX_S_MORPH, morph_gfx_hero_name(e->who), FORM_NAME[e->v % FORM_COUNT]);
+            else if (e->a == SAY_DOWN || e->a == SAY_REVIVED || e->a == SAY_TRAPPED || e->a == SAY_FREED)
+                snprintf(buf, sizeof(buf), t, morph_gfx_hero_name(e->who));
+            else snprintf(buf, sizeof(buf), "%s", t);
             say_text(buf);
-            if (e->a == SAY_PERFECT || e->a == SAY_PARRY || e->a == SAY_PARRY_ARMOR) sfx_play(SFX_PERFECT);
-            if (e->a == SAY_MORPH) sfx_play(SFX_LEVEL_UP);
-            if (e->a == SAY_BOSS) sfx_play(SFX_CHAIN);
+            if (e->a == SAY_PERFECT || e->a == SAY_PARRY || e->a == SAY_PARRY_ARMOR || e->a == SAY_REFLECT) sfx_play(SFX_PERFECT);
+            if (e->a == SAY_MORPH || e->a == SAY_COIL_OPEN || e->a == SAY_GUARD_BREAK) sfx_play(SFX_LEVEL_UP);
+            if (e->a == SAY_BOSS || e->a == SAY_RAGE || e->a == SAY_PHASE2) sfx_play(SFX_CHAIN);
+            break;
+        }
+        case BE_ZAP:
+            if (e->a == FA_BOLT) { B.bolt_t = 220; box_at(&B.bolt, e->x - 4, HUD_H); sfx_play(SFX_HIT); }
+            else if (e->a == FA_RING) {
+                B.zap_t = 250;
+                lv_obj_set_width(B.zap.o, 112); lv_obj_set_style_bg_color(B.zap.o, lv_color_hex(0xFFEB3B), 0);
+                box_at(&B.zap, e->x - 56, GROUND - 8);
+                sfx_play(SFX_HIT);
+            } else if (e->a == FA_TRAP) {
+                B.zap_t = 400;
+                lv_obj_set_width(B.zap.o, 240); lv_obj_set_style_bg_color(B.zap.o, lv_color_hex(0xB3E5FC), 0);
+                box_at(&B.zap, 0, GROUND - 8);
+                sfx_play(SFX_DODGE);
+            } else sfx_play(SFX_WHOOSH);
             break;
         case BE_CINE: sfx_play(SFX_CHAIN); break;
         case BE_BOOM: sfx_play(SFX_HIT); break;
@@ -260,7 +350,6 @@ void morph_gfx_battle_event(const morph_run_t *r, const mbt_ev_t *e) {
         case BE_SHIELD: if (e->a) sfx_play(SFX_DODGE); break;
         default: break;
     }
-    (void)r;
 }
 
 static uint8_t hero_pose(const mbt_hero_t *h, int32_t anim) {
@@ -270,11 +359,11 @@ static uint8_t hero_pose(const mbt_hero_t *h, int32_t anim) {
         case HS_CHARGE: return h->t < 100 ? MA_WINDUP : MA_HEAVY;
         case HS_CHASE: return h->t < 160 ? MA_JUMP : MA_HEAVY;
         case HS_SHIELD: return MA_GUARD;
-        case HS_SKILL: return MA_SPECIAL;
+        case HS_SKILL: return h->form == FORM_SPRING && h->t < 300 ? MA_JUMP : MA_SPECIAL;
         case HS_SWALLOW: return MA_SPECIAL;
         case HS_REVIVE: return MA_WINDUP;
         case HS_MORPH: case HS_ULT: return MA_WIN;
-        case HS_HURT: return MA_HIT;
+        case HS_HURT: case HS_TRAP: return MA_HIT;
         case HS_DOWN: return MA_KO;
         case HS_ROLL: return MA_JUMP;
         default: return MA_IDLE;
@@ -292,6 +381,8 @@ static void update_hint(const morph_battle_t *b, int p) {
         case HINT_SUPER: snprintf(buf, sizeof(buf), TX_H_SUPER, SUP_NAME[h->form]); break;
         case HINT_ULT: snprintf(buf, sizeof(buf), TX_H_ULT, ULT_NAME[h->form]); break;
         case HINT_WAIT_UP: snprintf(buf, sizeof(buf), "%s", TX_H_WAIT_UP); break;
+        case HINT_BREAK_OUT: snprintf(buf, sizeof(buf), "%s", TX_H_BREAK_OUT); break;
+        case HINT_RESCUE: snprintf(buf, sizeof(buf), "%s", TX_H_RESCUE); break;
         default: snprintf(buf, sizeof(buf), b->nh == 2 ? TX_H_NONE2 : TX_H_NONE, SKILL_NAME[h->form]); break;
     }
     uk_set_text(B.hint[p], buf);
@@ -329,6 +420,7 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
         bool left = h->face < 0;
         int hx = (int)h->x, lift = 0;
         if (h->st == HS_CHASE) { int t = h->t > 400 ? 400 : h->t; lift = (t < 200 ? t : 400 - t) / 5; }
+        if (h->st == HS_SKILL && h->form == FORM_SPRING && h->t < 300) lift = (int)(h->t * (300 - h->t) / 750);
         spr_put(&B.hero[p], morph_art_pose2((uint8_t)p, hero_pose(h, B.anim), left), 1, hx, GROUND - lift);
         spr_rot(&B.hero[p], h->st == HS_ROLL ? (int)(h->t * 12 % 3600) * (left ? -1 : 1) : 0);
         uint32_t tint = 0; uint8_t opa = 0;
@@ -337,8 +429,10 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
         else if (h->st == HS_REVIVE) { tint = 0x81C784; opa = LV_OPA_40; }
         spr_tint(&B.hero[p], tint, opa);
         if (h->form != FORM_NORMAL && h->st != HS_DOWN && h->st != HS_ROLL)
-            spr_put(&B.hat[p], morph_art_fx2(h->form == FORM_ICE ? MX_HAT_ICE : MX_HAT_VOLT), 1, hx + (left ? -1 : 1), GROUND - lift - 26);
+            spr_put(&B.hat[p], morph_art_fx2(FORM_HAT[h->form]), 1, hx + (left ? -1 : 1), GROUND - lift - 26);
         else spr_show(&B.hat[p], false);
+        if (h->st == HS_TRAP) box_at(&B.ice[p], hx - 15, GROUND - 36);
+        else show(B.ice[p].o, false);
         show(B.hi5[p], h->pend);
         if (h->pend) lv_obj_set_pos(B.hi5[p], hx - 15, GROUND - 62);
         // 顶上一条
@@ -347,59 +441,87 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
             uk_set_text(B.form[p], FORM_NAME[h->form]);
             lv_obj_set_style_text_color(B.form[p], lv_color_hex(FORM_COLOR[h->form]), 0);
         }
-        bar_set(&B.hp[p], h->hp, 100, h->hp < 30 ? 0xE53935 : 0x43A047);
+        bar_set(&B.hp[p], h->hp, h->maxhp, h->hp * 10 < h->maxhp * 3 ? 0xE53935 : 0x43A047);
         for (int k = 0; k < 3; k++) bar_set(&B.en[p][k], h->en - k * 100, 100, h->en >= (k + 1) * 100 ? 0xFFB300 : 0xA0700F);
         update_hint(b, p);
     }
     // 怪
-    int armored = -1;
+    int armored = -1, big = -1, guard = -1;
+    bool bolt_tele = false;
     for (int i = 0; i < MBT_MAXF; i++) {
         const mbt_foe_t *f = &b->f[i];
         if (!f->used) { spr_show(&B.foe[i], false); spr_show(&B.dizzy[i], false); bar_show(&B.fhp[i], false); continue; }
         const mbt_foe_def_t *d = &morph_foes[f->type];
-        uint8_t img = f->type == ET_ICE ? MF_ICE : f->type == ET_VOLT ? MF_VOLT : f->type == ET_BEAR ? MF_BEAR : MF_CLOCK;
-        int k = f->type == ET_BIGCLOCK ? 3 : 2;   // 大发条兵是发条兵的三倍(只有它在画面上放大:1.5 × 两倍图)
-        uint8_t frame = f->st == FS_WALK ? (uint8_t)((B.anim / 220) % 2) : 0;
+        bool coil = f->type == ET_COIL, one_frame = f->type == ET_ICEKING || f->type == ET_DYNAMO || f->type == ET_DEMON;
+        int sc = (f->type == ET_BIGCLOCK || f->type == ET_SNOWMAN || f->type == ET_BIGVOLT) ? 384 : 256;   // 精英:两倍图再放大 1.5
+        uint8_t frame = coil ? (uint8_t)((B.anim / 150) % 2) : f->st == FS_WALK ? (uint8_t)((B.anim / 220) % 2) : 0;
         int fx = (int)f->x, fy = GROUND + (int)f->y;
-        spr_put_scaled(&B.foe[i], morph_art_foe2(img, frame, f->face < 0), k * 128, fx, fy);
+        if (one_frame && f->st == FS_WALK && (B.anim / 220) % 2) fy -= 2;   // 只画了一帧的 Boss:走路上下颠
+        const lv_image_dsc_t *img = morph_art_foe2(FOE_IMG[f->type], frame, f->face < 0);
+        spr_put_scaled(&B.foe[i], img, sc, fx, fy);
+        bool shielded = morph_mbt_shielded(b, i);
         uint32_t tint = 0; uint8_t opa = 0;
-        if (f->hp <= 0) { tint = 0xFFFFFF; opa = LV_OPA_COVER; }
+        if (coil && f->hp <= 0) { tint = 0x212121; opa = LV_OPA_60; }
+        else if (f->hp <= 0) { tint = 0xFFFFFF; opa = LV_OPA_COVER; }
         else if (f->flash > 0) { tint = 0xFFFFFF; opa = LV_OPA_70; }
-        else if (f->st == FS_TELE && (f->t / 80) % 2 == 0) { tint = 0xFF1744; opa = LV_OPA_70; }
+        else if (f->st == FS_TELE && (f->t / 80) % 2 == 0) {
+            tint = f->atk == FA_TRAP ? 0x4DD0E1 : f->atk == FA_BOLT ? 0xFFEB3B : 0xFF1744; opa = LV_OPA_70;
+        }
         else if (f->freeze_t > 0) { tint = 0xB3E5FC; opa = LV_OPA_60; }
+        else if (shielded) { tint = 0xFFF59D; opa = (B.anim / 200) % 2 ? LV_OPA_50 : LV_OPA_30; }
         else if (f->armor) { tint = 0xCFD8DC; opa = LV_OPA_30; }
         spr_tint(&B.foe[i], tint, opa);
-        int top = fy - d->h * k / 2 - (f->type == ET_BEAR ? 24 : 12);
+        int top = fy - img->header.h * sc / 256 - 6;
         if (f->hp > 0 && f->stun_t > 0) spr_put(&B.dizzy[i], morph_art_fx(MX_STAR), 1, fx + (int)((B.anim / 60) % 21) - 10, top);
         else spr_show(&B.dizzy[i], false);
-        bool small = !d->boss && !d->elite && f->hp > 0;
+        // 小怪、线圈头上的小血条;坏了的线圈:黄条是「还剩多久充好电」
+        bool down_coil = coil && f->hp <= 0 && f->open_t > 0;
+        bool small = (!d->boss && !d->elite && f->hp > 0) || down_coil;
         if (small) {
             lv_obj_set_pos(B.fhp[i].bg, fx - 10, top - 4);
             lv_obj_set_pos(B.fhp[i].fill, fx - 10, top - 4);
-            bar_set(&B.fhp[i], f->hp, f->max, 0xE53935);
+            if (down_coil) bar_set(&B.fhp[i], f->open_t, b->nh == 2 ? 3000 : 12000, 0xFFEB3B);
+            else bar_set(&B.fhp[i], f->hp, f->max, 0xE53935);
         }
         bar_show(&B.fhp[i], small);
         if (f->armor && f->hp > 0) armored = i;
-        if ((d->boss || d->elite) && f->hp > 0) {
-            bar_show(&B.boss, true);
-            bar_set(&B.boss, f->hp, f->max, 0xE53935);
-            show(B.boss_name, true);
-            uk_set_text(B.boss_name, d->boss ? TX_E_BEAR : TX_E_BIGCLOCK);
+        if ((d->boss || d->elite) && f->hp > 0) big = i;
+        if (morph_mbt_guarding(f)) guard = i;
+        if (f->hp > 0 && f->st == FS_TELE && f->atk == FA_BOLT) {
+            bolt_tele = true;
+            if ((B.anim / 100) % 2) box_at(&B.bolt_mark, (int)f->atk_x - 22, GROUND - 4);
+            else show(B.bolt_mark.o, false);
         }
+    }
+    if (!bolt_tele) show(B.bolt_mark.o, false);
+    if (guard >= 0) {
+        const mbt_foe_t *f = &b->f[guard];
+        box_at(&B.guard, (int)f->x + f->face * 24 - 2, GROUND + (int)f->y - 44);
+    } else {
+        show(B.guard.o, false);
     }
     for (int k = 0; k < 3; k++) {
         bool on = armored >= 0 && k < b->f[armored].armor;
         show(B.pip[k], on);
         if (on) lv_obj_set_pos(B.pip[k], (int)b->f[armored].x - 13 + k * 9, GROUND - 68);
     }
-    if (armored < 0) {
-        bool any = false;
-        for (int i = 0; i < MBT_MAXF; i++) any |= b->f[i].used && b->f[i].hp > 0 && (morph_foes[b->f[i].type].boss || morph_foes[b->f[i].type].elite);
-        if (!any) { bar_show(&B.boss, false); show(B.boss_name, false); }
+    bar_show(&B.boss, big >= 0); show(B.boss_name, big >= 0);
+    if (big >= 0) {
+        bar_set(&B.boss, b->f[big].hp, b->f[big].max, 0xE53935);
+        uk_set_text(B.boss_name, foe_name(b->f[big].type));
     }
+    if (B.bolt_t > 0) { B.bolt_t -= (int32_t)dt; if (B.bolt_t <= 0) show(B.bolt.o, false); }
+    if (B.zap_t > 0) { B.zap_t -= (int32_t)dt; if (B.zap_t <= 0) show(B.zap.o, false); }
     for (int i = 0; i < MBT_MAXSHOT; i++) {
-        if (b->shot[i].used) spr_put(&B.shot[i], morph_art_fx2(MX_ICEBALL), 1, (int)b->shot[i].x, GROUND - 12);
+        if (b->shot[i].used)
+            spr_put(&B.shot[i], morph_art_fx2(b->shot[i].form == FORM_ROCKET ? MX_FIREBALL : MX_ICEBALL), 1, (int)b->shot[i].x, GROUND - 12);
         else spr_show(&B.shot[i], false);
+    }
+    for (int i = 0; i < MBT_MAXFSHOT; i++) {
+        const mbt_fshot_t *s = &b->fshot[i];
+        if (!s->used) { spr_show(&B.fshot[i], false); continue; }
+        spr_put_scaled(&B.fshot[i], morph_art_fx2(s->kind ? MX_FIREBALL : MX_SNOWBALL), s->big ? 384 : 256, (int)s->x, GROUND - 14);
+        spr_tint(&B.fshot[i], s->refl ? 0xFFD54F : 0, s->refl ? LV_OPA_60 : 0);
     }
     for (int i = 0; i < MBT_MAXSTAR; i++) {
         if (b->star[i].used) {
@@ -435,7 +557,6 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
 static lv_point_precise_t s_pts[MR_ROWS * MR_COLS * MR_COLS][2];
 static struct {
     lv_obj_t *dot[MR_ROWS][MR_COLS], *ch[MR_ROWS][MR_COLS];
-    lv_obj_t *line[MR_ROWS][MR_COLS][MR_COLS];
     spr_t hero[2];
     lv_obj_t *hint_bg, *hint, *desc, *panel, *pt, *p1, *p2, *pn;
     int8_t sel_r, sel_i;
@@ -447,14 +568,14 @@ static const char *const NODE_CH[NODE_COUNT] = { TX_N_START, TX_N_BATTLE, TX_N_E
 static const uint32_t NODE_COLOR[NODE_COUNT] = { 0x78909C, 0xE53935, 0x8E24AA, 0x43A047, 0xFB8C00, 0x212121 };
 static const char *const NODE_DESC[NODE_COUNT] = { "", TX_D_BATTLE, TX_D_ELITE, TX_D_REST, TX_D_TREASURE, TX_D_BOSS };
 
-void morph_gfx_map(lv_obj_t *scr, const morph_run_t *r) {
-    morph_gfx_destroy();
-    s_scr = scr; s_battle = false;
+static void build_map(lv_obj_t *scr, const morph_run_t *r) {
     memset(&M, 0, sizeof(M));
     M.sel_r = M.sel_i = -1;
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x33691E), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(look(r)->map), 0);
     lv_obj_t *t = label(scr, UK_F12, 0xFFFFFF, 0, 4, 240, true);
-    uk_set_text(t, TX_MAP);
+    char buf[48];
+    snprintf(buf, sizeof(buf), TX_CH_N, r->chapter + 1, CH_NAME[r->chapter]);
+    uk_set_text(t, buf);
     int k = 0;
     for (int row = 0; row < MR_ROWS - 1; row++)
         for (int i = 0; i < r->ncol[row]; i++)
@@ -466,8 +587,7 @@ void morph_gfx_map(lv_obj_t *scr, const morph_run_t *r) {
                 lv_obj_t *l = lv_line_create(scr);
                 lv_line_set_points(l, s_pts[k], 2);
                 lv_obj_set_style_line_width(l, 2, 0);
-                lv_obj_set_style_line_color(l, lv_color_hex(0xA5D6A7), 0);
-                M.line[row][i][j] = l;
+                lv_obj_set_style_line_color(l, lv_color_hex(0xBDBDBD), 0);
                 k++;
             }
     for (int row = 0; row < MR_ROWS; row++)
@@ -506,8 +626,8 @@ static void update_map(const morph_run_t *r, uint32_t dt) {
     }
     int bob = r->walking ? (int)((M.anim / 80) % 2) * 3 : 0;
     for (int p = 0; p < r->nh; p++)
-        spr_put(&M.hero[p], morph_art_pose((uint8_t)p, r->walking ? ((M.anim / 160) % 2 ? MA_WALK1 : MA_WALK2) : MA_IDLE, false), 1,
-                px - (r->nh == 2 ? 7 : 0) + p * 14, py - 6 - bob);
+        spr_put_scaled(&M.hero[p], morph_art_pose2((uint8_t)p, r->walking ? ((M.anim / 160) % 2 ? MA_WALK1 : MA_WALK2) : MA_IDLE, false),
+                       128, px - (r->nh == 2 ? 7 : 0) + p * 14, py - 6 - bob);   // 两倍图缩回原大(地图上只两个人)
     // 走过的点变灰,分叉时选中的点亮起来
     uint8_t n = morph_mr_next_count(r);
     bool fork = r->phase == RUN_MAP && !r->walking && n > 1;
@@ -546,10 +666,144 @@ static void update_map(const morph_run_t *r, uint32_t dt) {
     uk_set_text(M.pt, title); uk_set_text(M.p1, a); uk_set_text(M.p2, b);
 }
 
+// =====================================================================================================
+// 营地页(一关打完的结果盖在上面)
+// =====================================================================================================
+#define HUB_Y0 56
+#define HUB_DY 30
+static struct {
+    lv_obj_t *parts, *item[HUB_COUNT], *val[HUB_COUNT], *mark[2], *msg[2];
+    lv_obj_t *panel, *pt, *p[4], *pn;
+    char key[160];               // 上次画的内容(没变就不碰)
+} H;
+
+static void build_hub(lv_obj_t *scr, const morph_run_t *r) {
+    memset(&H, 0, sizeof(H));
+    lv_obj_set_style_bg_color(scr, lv_color_hex(look(r)->map), 0);
+    lv_obj_t *t = label(scr, UK_F24, 0xFFFFFF, 0, 4, 240, true);
+    uk_set_text(t, TX_HUB);
+    H.parts = label(scr, UK_F12, 0xFFE082, 0, 34, 240, true);
+    for (int i = 0; i < HUB_COUNT; i++) {
+        lv_obj_t *bg = uk_rect(scr, 20, HUB_Y0 + i * HUB_DY, 200, 26, i == HUB_GO ? 0xC8302C : 0x000000);
+        lv_obj_set_style_bg_opa(bg, i == HUB_GO ? LV_OPA_COVER : LV_OPA_40, 0);
+        lv_obj_set_style_radius(bg, 6, 0);
+        H.item[i] = label(scr, UK_F12, 0xFFFFFF, 28, HUB_Y0 + i * HUB_DY + 6, 0, false);
+        H.val[i] = label(scr, UK_F12, 0xFFF59D, 150, HUB_Y0 + i * HUB_DY + 6, 64, false);
+        lv_obj_set_style_text_align(H.val[i], LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    uk_set_text(H.item[HUB_HP], TX_HUB_HP);
+    uk_set_text(H.item[HUB_ATK], TX_HUB_ATK);
+    uk_set_text(H.item[HUB_ULT], TX_HUB_ULT);
+    uk_set_text(H.item[HUB_EN], TX_HUB_EN);
+    uk_set_text(H.item[HUB_GO], TX_HUB_GO);
+    uk_set_text(H.item[HUB_QUIT], TX_HUB_QUIT);
+    for (int p = 0; p < r->nh; p++) {
+        H.mark[p] = label(scr, UK_F12, p ? 0x90CAF9 : 0xEF9A9A, p ? 224 : 6, 0, 0, false);
+        uk_set_text(H.mark[p], p ? TX_MARK_DAD : TX_MARK_KID);
+        H.msg[p] = label(scr, UK_F12, p ? 0x90CAF9 : 0xEF9A9A, 0, 268 + p * 15, 240, true);
+    }
+    lv_obj_t *hint = label(scr, UK_F12, 0xDDDDDD, 0, 302, 240, true);
+    uk_set_text(hint, TX_HUB_HINT);
+    H.panel = uk_rect(scr, 12, 60, 216, 200, 0x000000);
+    lv_obj_set_style_bg_opa(H.panel, LV_OPA_90, 0);
+    lv_obj_set_style_radius(H.panel, 8, 0);
+    H.pt = label(scr, UK_F24, 0xFFD54F, 12, 74, 216, true);
+    for (int i = 0; i < 4; i++) H.p[i] = label(scr, UK_F12, 0xFFFFFF, 12, 116 + i * 22, 216, true);
+    H.pn = label(scr, UK_F12, 0xBBBBBB, 12, 228, 216, true);
+    uk_set_text(H.pn, TX_END_HINT);
+}
+
+static void hub_msg(const morph_run_t *r, int p, char *out, size_t n) {
+    const mr_profile_t *pf = &r->prof[p];
+    const char *who = r->nh == 2 ? morph_gfx_hero_name(p) : "";
+    uint8_t it = r->hub_msg[p] == HM_NONE ? r->hub_sel[p] : r->hub_item[p];
+    int u = it - HUB_HP;
+    switch (r->hub_msg[p]) {
+        case HM_BOUGHT: snprintf(out, n, TX_HM_BOUGHT, who, (unsigned)pf->lv[u]); return;
+        case HM_POOR: snprintf(out, n, TX_HM_POOR, who, morph_mr_upg_cost(pf->lv[u])); return;
+        case HM_MAXED: snprintf(out, n, TX_HM_MAXED, who); return;
+        case HM_WAIT_MATE: snprintf(out, n, TX_HM_WAIT, who); return;
+        default: break;
+    }
+    if (it >= HUB_HP && it <= HUB_EN) {
+        int c = morph_mr_upg_cost(pf->lv[u]);
+        if (c < 0) snprintf(out, n, TX_HM_MAXED, who);
+        else snprintf(out, n, TX_HM_COST, who, c);
+    } else if (it == HUB_CHAPTER) snprintf(out, n, "%s", TX_HM_CH);
+    else if (it == HUB_GO) snprintf(out, n, "%s", r->ready[p] ? "" : TX_HM_GO);
+    else out[0] = 0;
+}
+
+static void update_hub(const morph_run_t *r) {
+    char key[sizeof(H.key)], buf[64];
+    bool result = r->phase == RUN_WIN || r->phase == RUN_OVER;
+    snprintf(key, sizeof(key), "%u %u %u %u %u %u %u %u %u %u %u %u %u %u %lu", r->phase, r->chapter, r->hub_sel[0],
+             r->hub_sel[1], r->ready[0], r->ready[1], r->hub_msg[0], r->hub_msg[1], r->prof[0].parts, r->prof[1].parts,
+             r->prof[0].lv[0] | r->prof[0].lv[1] << 2 | r->prof[0].lv[2] << 4 | r->prof[0].lv[3] << 6,
+             r->prof[1].lv[0] | r->prof[1].lv[1] << 2 | r->prof[1].lv[2] << 4 | r->prof[1].lv[3] << 6,
+             r->prof[0].cleared | r->prof[1].cleared, r->hub_item[0] | r->hub_item[1] << 4,
+             (unsigned long)(result && r->event_t > 900));
+    if (!strcmp(key, H.key)) return;
+    snprintf(H.key, sizeof(H.key), "%s", key);
+    // 零件
+    if (r->nh == 2) snprintf(buf, sizeof(buf), TX_PARTS2, (unsigned)r->prof[0].parts, (unsigned)r->prof[1].parts);
+    else snprintf(buf, sizeof(buf), TX_PARTS, (unsigned)r->prof[0].parts);
+    uk_set_text(H.parts, buf);
+    bool done = ((r->prof[0].cleared | (r->nh == 2 ? r->prof[1].cleared : 0)) >> r->chapter) & 1;
+    snprintf(buf, sizeof(buf), done ? TX_HUB_CH_DONE : TX_HUB_CH, r->chapter + 1, CH_NAME[r->chapter]);
+    uk_set_text(H.item[HUB_CHAPTER], buf);
+    for (int u = 0; u < UPG_COUNT; u++) {
+        if (r->nh == 2) snprintf(buf, sizeof(buf), TX_LV2, (unsigned)r->prof[0].lv[u], (unsigned)r->prof[1].lv[u]);
+        else snprintf(buf, sizeof(buf), TX_LV, (unsigned)r->prof[0].lv[u]);
+        uk_set_text(H.val[HUB_HP + u], buf);
+    }
+    for (int p = 0; p < r->nh; p++) {
+        show(H.mark[p], !result); show(H.msg[p], !result);
+        lv_obj_set_pos(H.mark[p], p ? 224 : 6, HUB_Y0 + r->hub_sel[p] * HUB_DY + 6);
+        lv_obj_set_style_text_color(H.mark[p], lv_color_hex(r->ready[p] ? 0xFFD54F : p ? 0x90CAF9 : 0xEF9A9A), 0);
+        hub_msg(r, p, buf, sizeof(buf));
+        uk_set_text(H.msg[p], buf);
+    }
+    // 结果
+    show(H.panel, result); show(H.pt, result); show(H.pn, result && r->event_t > 900);
+    for (int i = 0; i < 4; i++) show(H.p[i], result);
+    if (!result) return;
+    const mr_chapter_t *c = &morph_chapters[r->played];
+    char l[4][64] = { "", "", "", "" };
+    if (r->phase == RUN_WIN) {
+        snprintf(buf, sizeof(buf), TX_WIN, foe_name(c->boss));
+        lv_obj_set_style_text_color(H.pt, lv_color_hex(0xFFD54F), 0);
+        if (r->played == MR_CHAPTERS - 1) snprintf(l[0], sizeof(l[0]), "%s", TX_WIN_ALL);
+        else snprintf(l[0], sizeof(l[0]), TX_WIN2, CH_NAME[r->played]);
+        snprintf(l[1], sizeof(l[1]), TX_GOT_PARTS, (unsigned)r->gained);
+        if (r->first_clear) {
+            snprintf(l[2], sizeof(l[2]), "%s", TX_FIRST_BONUS);
+            if (r->played + 1 < MR_CHAPTERS) snprintf(l[3], sizeof(l[3]), TX_NEW_CH, CH_NAME[r->played + 1]);
+        }
+    } else {
+        snprintf(buf, sizeof(buf), "%s", TX_OVER);
+        lv_obj_set_style_text_color(H.pt, lv_color_hex(0xEF5350), 0);
+        snprintf(l[0], sizeof(l[0]), "%s", TX_OVER2);
+        snprintf(l[1], sizeof(l[1]), TX_GOT_PARTS, (unsigned)r->gained);
+    }
+    uk_set_text(H.pt, buf);
+    for (int i = 0; i < 4; i++) uk_set_text(H.p[i], l[i]);
+}
+
+// =====================================================================================================
+void morph_gfx_build(lv_obj_t *scr, const morph_run_t *r) {
+    s_scr = scr;
+    s_kind = morph_gfx_page_for(r);
+    if (s_kind == GP_BATTLE) build_battle(scr, r);
+    else if (s_kind == GP_MAP) build_map(scr, r);
+    else build_hub(scr, r);
+}
+
 void morph_gfx_update(const morph_run_t *r, uint32_t dt) {
     if (!s_scr) return;
-    if (s_battle) update_battle(r, dt);
-    else update_map(r, dt);
+    if (s_kind == GP_BATTLE) update_battle(r, dt);
+    else if (s_kind == GP_MAP) update_map(r, dt);
+    else update_hub(r);
 }
 
 void morph_gfx_destroy(void) { s_scr = NULL; }   // 对象都挂在页面上,换页时外壳删掉整页

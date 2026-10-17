@@ -15,13 +15,13 @@ out.write_text(src + f'''
 no = 14
 id = "morph"
 author = "库巴老爸"
-blurb = "两张卡一起闯关:变身、合体、打倒发条铁皮熊"
+blurb = "两张卡一起闯四关:变身、合体、打倒玩具魔王"
 repo = "local:{GAME}"
 commit = ""
 price = 0
 starter = false
 listed = true
-stars = [2, 3, 4]
+stars = [2, 3, 4, 5, 6, 10]
 size_kb = 200
 tags = []
 icons = []

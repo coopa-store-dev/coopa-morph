@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """两个桌面模拟器(外壳的 tools/sim,真时钟,假链路走本机 UDP)装上库巴变变变,两人联机打一趟。按键走真的按键组件。
-两边首页 ▼ 到「两人联机」→ 连上 → a 选库巴(▲)、b 自动当爸爸 → 两边按真人手速乱按(地图上分叉随便选、
-弹出来的 ● 关掉);中途把 b 停 3 秒(断线),两边都该停住、放开后接着打。
-一直查:两边状态行的「对不上」一直是 0;两边冒险阶段、第几排对得上;最后两边都到结束页。
+两边首页 ▼ 到「两人联机」→ 连上 → a 选库巴(▲)、b 自动当爸爸 → 营地:a 先按「出发」(要等 b)、b 再按 → 开打;
+两边按真人手速乱按(地图上分叉随便选、弹出来的 ● 关掉);中途把 b 停 3 秒(断线),两边都该停住、放开后接着打。
+一直查:两边状态行的「对不上」一直是 0;最后两边都到这关的结果,● 一起回营地。
   tests/sim_duo.py --shell 外壳 --fonts 字库 --catalog 目录 --out 截图目录 [--minutes 12]"""
 import argparse
 import os
@@ -12,8 +12,9 @@ import sys
 import time
 
 KEYS = ("page phase nh row walking hp en form st x foes boss result cine objs dt_avg dt_max draw_max draw_n "
-        "net me rtt delay desync step100").split()
-PG_TITLE, PG_RUN, PG_END, PG_LINK, PG_PICK = range(5)
+        "net me rtt delay desync step100 ch parts").split()
+PG_TITLE, PG_RUN, PG_LINK, PG_PICK = range(4)
+RUN_MAP, RUN_EVENT, RUN_BATTLE, RUN_WIN, RUN_OVER, RUN_HUB = range(6)
 MN_IDLE, MN_PICK, MN_PLAY, MN_PAUSED, MN_BAD = range(5)
 
 
@@ -101,14 +102,30 @@ def main():
             time.sleep(0.3)
         sx, sy = x.stat(), y.stat()
         assert sx["me"] == 0 and sy["me"] == 1, (sx, sy)
-        print("开打:", sx, sy)
+        end = time.time() + 10
+        while not (x.stat()["phase"] == RUN_HUB and y.stat()["phase"] == RUN_HUB):
+            if time.time() > end:
+                sys.exit(f"没到营地:{x.stat()} {y.stat()}")
+            time.sleep(0.3)
+        x.shot("hub")
+        x.press("ok")   # a 先按出发:等 b
+        time.sleep(1.0)
+        assert x.stat()["phase"] == RUN_HUB and y.stat()["phase"] == RUN_HUB, (x.stat(), y.stat())
+        x.shot("hub-wait")
+        y.press("ok")
+        end = time.time() + 10
+        while not (x.stat()["phase"] == RUN_MAP and y.stat()["phase"] == RUN_MAP):
+            if time.time() > end:
+                sys.exit(f"出发不了:{x.stat()} {y.stat()}")
+            time.sleep(0.3)
+        print("开打:", x.stat(), y.stat())
         t0 = time.time()
         paused = False
         checks = 0
         while time.time() - t0 < a.minutes * 60:
             for card in (x, y):
                 s = card.stat()
-                if s["page"] == PG_END:
+                if s["phase"] in (RUN_WIN, RUN_OVER, RUN_HUB):
                     continue
                 if s["phase"] == 1:   # RUN_EVENT
                     card.press("ok")
@@ -129,7 +146,7 @@ def main():
             sx, sy = x.stat(), y.stat()
             assert sx["desync"] == 0 and sy["desync"] == 0, ("对不上", sx, sy)
             checks += 1
-            if sx["page"] == PG_END and sy["page"] == PG_END:
+            if sx["phase"] in (RUN_WIN, RUN_OVER) and sy["phase"] in (RUN_WIN, RUN_OVER):
                 break
             if not paused and time.time() - t0 > 60:   # 断线 3 秒
                 y.c.ok("pause")
@@ -150,9 +167,17 @@ def main():
         print(f"查了 {checks} 次;最后 a:", sx)
         print("最后 b:", sy)
         assert paused and sx["desync"] == 0 and sy["desync"] == 0
-        if sx["page"] == PG_END and sy["page"] == PG_END:
-            x.shot("end")
-            print("两边都到结束页")
+        if sx["phase"] in (RUN_WIN, RUN_OVER) and sy["phase"] in (RUN_WIN, RUN_OVER):
+            time.sleep(1.5)
+            x.shot("result")
+            x.press("ok")
+            end = time.time() + 10
+            while not (x.stat()["phase"] == RUN_HUB and y.stat()["phase"] == RUN_HUB):
+                if time.time() > end:
+                    sys.exit(f"回不了营地:{x.stat()} {y.stat()}")
+                time.sleep(0.3)
+            x.shot("hub-after")
+            print("两边都打完这关、回了营地;零件", x.stat()["parts"], y.stat()["parts"])
         print("sim_duo: ok")
     finally:
         for card in (x, y):

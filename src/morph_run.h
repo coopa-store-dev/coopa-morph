@@ -42,6 +42,7 @@ typedef struct {
     uint8_t nh;                         // 几个人
     uint8_t phase;                      // mr_phase_t
     uint8_t chapter;                    // 这一关(0..MR_CHAPTERS-1);营地里是选着的那关
+    uint8_t played;                     // 刚打的是哪关(结果上写)
     mr_profile_t prof[2];
     // 营地
     uint8_t hub_sel[2]; bool ready[2], quit[2];

@@ -41,41 +41,44 @@ static void check_mirror(const lv_image_dsc_t *r, const lv_image_dsc_t *l) {
     }
 }
 
+#define PX (32 * 32 * 3)   // 人物两倍图 32×32 RGB565A8
 static void test_poses(void) {
     for (uint8_t c = 0; c < CHARS; c++) {
         for (uint8_t p = 0; p < MA_POSES; p++) {
-            const lv_image_dsc_t *r = morph_art_pose(c, p, false), *l = morph_art_pose(c, p, true);
+            const lv_image_dsc_t *r = morph_art_pose2(c, p, false), *l = morph_art_pose2(c, p, true);
             check_head(r);
             check_head(l);
             assert(r->header.cf == LV_COLOR_FORMAT_RGB565A8 && l->header.cf == LV_COLOR_FORMAT_RGB565A8);
-            assert(r->header.w == 16 && r->header.h == 16 && r->data_size == 16 * 16 * 3);
+            assert(r->header.w == 32 && r->header.h == 32 && r->data_size == PX);
             assert(r != l && r->data != l->data);
             check_mirror(r, l);
             for (uint8_t q = 0; q < p; q++) {  // 每个姿势都画了(不是拿别的姿势充数)
-                assert(memcmp(r->data, morph_art_pose(c, q, false)->data, 16 * 16 * 3) != 0);
+                assert(memcmp(r->data, morph_art_pose2(c, q, false)->data, PX) != 0);
             }
         }
         // 人是侧身的:站着那张和它的镜像不一样
-        assert(memcmp(morph_art_pose(c, MA_IDLE, false)->data, morph_art_pose(c, MA_IDLE, true)->data, 16 * 16 * 3));
+        assert(memcmp(morph_art_pose2(c, MA_IDLE, false)->data, morph_art_pose2(c, MA_IDLE, true)->data, PX));
     }
-    assert(memcmp(morph_art_pose(0, MA_IDLE, false)->data, morph_art_pose(1, MA_IDLE, false)->data, 16 * 16 * 3));
+    assert(memcmp(morph_art_pose2(0, MA_IDLE, false)->data, morph_art_pose2(1, MA_IDLE, false)->data, PX));
 }
 
 static void test_out_of_range(void) {
-    assert(morph_art_pose(CHARS, MA_JUMP, false) == morph_art_pose(0, MA_IDLE, false));
-    assert(morph_art_pose(1, MA_POSES, true) == morph_art_pose(0, MA_IDLE, true));
-    assert(morph_art_pose(255, 255, false) == morph_art_pose(0, MA_IDLE, false));
+    assert(morph_art_pose2(CHARS, MA_JUMP, false) == morph_art_pose2(0, MA_IDLE, false));
+    assert(morph_art_pose2(1, MA_POSES, true) == morph_art_pose2(0, MA_IDLE, true));
+    assert(morph_art_pose2(255, 255, false) == morph_art_pose2(0, MA_IDLE, false));
     assert(morph_art_tile(MT_IMG_COUNT) == NULL);
-    // 怪:每只两帧、两个方向都在,朝左的是朝右的水平翻转;特效都在
+    // 怪(两倍图):每只两帧、两个方向都在,朝左的是朝右的水平翻转;Boss 大图 48×48、别的 32×32;特效都在
     for (uint8_t f = 0; f < MF_COUNT; f++)
         for (uint8_t fr = 0; fr < 2; fr++) {
-            const lv_image_dsc_t *r = morph_art_foe(f, fr, false), *l = morph_art_foe(f, fr, true);
+            const lv_image_dsc_t *r = morph_art_foe2(f, fr, false), *l = morph_art_foe2(f, fr, true);
+            check_head(r);
             int w = r->header.w, h = r->header.h;
-            assert(w == (f == MF_BEAR ? 24 : 16) && h == w && l->header.w == w);
+            bool big = f == MF_BEAR || f == MF_ICEKING || f == MF_DYNAMO || f == MF_DEMON;
+            assert(w == (big ? 48 : 32) && h == w && l->header.w == w);
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++) assert(r->data[w * h * 2 + y * w + x] == l->data[w * h * 2 + y * w + (w - 1 - x)]);
         }
-    assert(morph_art_foe(MF_COUNT, 0, false) == morph_art_foe(MF_CLOCK, 0, false));
+    assert(morph_art_foe2(MF_COUNT, 0, false) == morph_art_foe2(MF_CLOCK, 0, false));
     for (uint8_t x = 0; x < MX_COUNT; x++) assert(morph_art_fx(x) && morph_art_fx(x)->data_size > 0);
     assert(morph_art_fx(MX_COUNT) == NULL);
     assert(morph_art_tile(255) == NULL);
@@ -87,11 +90,7 @@ static void test_tiles(void) {
         check_head(d);
         for (uint8_t o = 0; o < t; o++) assert(d != morph_art_tile(o) && d->data != morph_art_tile(o)->data);
     }
-    const uint8_t cells[] = { MT_IMG_TOP, MT_IMG_FILL, MT_IMG_BRICK, MT_IMG_PLAT };
-    for (size_t i = 0; i < sizeof cells; i++) {
-        const lv_image_dsc_t *d = morph_art_tile(cells[i]);
-        assert(d->header.w == 32 && d->header.h == 32);
-    }
+    assert(morph_art_tile(MT_IMG_TOP)->header.w == 32 && morph_art_tile(MT_IMG_TOP)->header.h == 32);
 }
 
 int main(void) {

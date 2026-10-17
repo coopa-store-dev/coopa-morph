@@ -198,6 +198,10 @@ const lv_image_dsc_t *morph_art_pose(uint8_t ch, uint8_t pose, bool facing_left)
 const lv_image_dsc_t *morph_art_tile(uint8_t t);                                    // 越界返回 NULL
 const lv_image_dsc_t *morph_art_foe(uint8_t f, uint8_t frame, bool facing_left);    // frame 0 / 1;越界返回发条兵
 const lv_image_dsc_t *morph_art_fx(uint8_t x);                                      // 越界返回 NULL
+// 战斗页用的:生成时已放大两倍(画面上不用再放大,真卡上省一大截刷屏时间);参数和上面一样
+const lv_image_dsc_t *morph_art_pose2(uint8_t ch, uint8_t pose, bool facing_left);
+const lv_image_dsc_t *morph_art_foe2(uint8_t f, uint8_t frame, bool facing_left);
+const lv_image_dsc_t *morph_art_fx2(uint8_t x);
 """
 
 
@@ -228,6 +232,25 @@ def source(chars: list[dict[str, list[str]]], tiles: dict[str, list[str]], foes:
         foe_dsc.append("    {\n" + "\n".join(row) + "\n    },")
     for x, _ in FX:
         out += [array(f"FX_{x}", rgb565a8(fx[x.lower()])), ""]
+    pose2, foe2 = [], []
+    for (cid, _), arts in zip(CHARS, chars):
+        row = []
+        for p, _ in POSES:
+            r2 = scale(arts[p.lower()], 2)
+            base = f"{cid.upper()}_{p}_2X"
+            out += [array(base + "_R", rgb565a8(r2)), array(base + "_L", rgb565a8([r[::-1] for r in r2])), ""]
+            row.append(f"        {{ {dsc(base + '_R', r2)},\n          {dsc(base + '_L', [r[::-1] for r in r2])} }},")
+        pose2.append("    {\n" + "\n".join(row) + "\n    },")
+    for f, _, _, _ in FOES:
+        row = []
+        for fr in "ab":
+            r2 = scale(foes[f"{f.lower()}_{fr}"], 2)
+            base = f"FOE_{f}_{fr.upper()}_2X"
+            out += [array(base + "_R", rgb565a8(r2)), array(base + "_L", rgb565a8([r[::-1] for r in r2])), ""]
+            row.append(f"        {{ {dsc(base + '_R', r2)},\n          {dsc(base + '_L', [r[::-1] for r in r2])} }},")
+        foe2.append("    {\n" + "\n".join(row) + "\n    },")
+    for x, _ in FX:
+        out += [array(f"FX_{x}_2X", rgb565a8(scale(fx[x.lower()], 2))), ""]
     out.append(f"static const lv_image_dsc_t POSE[{len(CHARS)}][MA_POSES][2] = {{  // [ch][pose][朝左]")
     out += pose_dsc + ["};", ""]
     out.append("static const lv_image_dsc_t TILE[MT_IMG_COUNT] = {")
@@ -255,6 +278,29 @@ def source(chars: list[dict[str, list[str]]], tiles: dict[str, list[str]], foes:
         "}",
         "",
         "const lv_image_dsc_t *morph_art_fx(uint8_t x) { return x < MX_COUNT ? &FX[x] : NULL; }",
+        "",
+    ]
+    out.append(f"static const lv_image_dsc_t POSE2[{len(CHARS)}][MA_POSES][2] = {{")
+    out += pose2 + ["};", ""]
+    out.append("static const lv_image_dsc_t FOE2[MF_COUNT][2][2] = {")
+    out += foe2 + ["};", ""]
+    out.append("static const lv_image_dsc_t FX2[MX_COUNT] = {")
+    out += [f"    {dsc(f'FX_{x}_2X', scale(fx[x.lower()], 2))}," for x, _ in FX] + ["};", ""]
+    out += [
+        "const lv_image_dsc_t *morph_art_pose2(uint8_t ch, uint8_t pose, bool facing_left) {",
+        f"    if (ch >= {len(CHARS)} || pose >= MA_POSES) {{",
+        "        ch = 0;",
+        "        pose = MA_IDLE;",
+        "    }",
+        "    return &POSE2[ch][pose][facing_left ? 1 : 0];",
+        "}",
+        "",
+        "const lv_image_dsc_t *morph_art_foe2(uint8_t f, uint8_t frame, bool facing_left) {",
+        "    if (f >= MF_COUNT) f = MF_CLOCK;",
+        "    return &FOE2[f][frame & 1][facing_left ? 1 : 0];",
+        "}",
+        "",
+        "const lv_image_dsc_t *morph_art_fx2(uint8_t x) { return x < MX_COUNT ? &FX2[x] : NULL; }",
         "",
     ]
     return "\n".join(out)

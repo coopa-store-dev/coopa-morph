@@ -45,3 +45,7 @@ const lv_image_dsc_t *morph_art_pose(uint8_t ch, uint8_t pose, bool facing_left)
 const lv_image_dsc_t *morph_art_tile(uint8_t t);                                    // 越界返回 NULL
 const lv_image_dsc_t *morph_art_foe(uint8_t f, uint8_t frame, bool facing_left);    // frame 0 / 1;越界返回发条兵
 const lv_image_dsc_t *morph_art_fx(uint8_t x);                                      // 越界返回 NULL
+// 战斗页用的:生成时已放大两倍(画面上不用再放大,真卡上省一大截刷屏时间);参数和上面一样
+const lv_image_dsc_t *morph_art_pose2(uint8_t ch, uint8_t pose, bool facing_left);
+const lv_image_dsc_t *morph_art_foe2(uint8_t f, uint8_t frame, bool facing_left);
+const lv_image_dsc_t *morph_art_fx2(uint8_t x);

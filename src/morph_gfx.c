@@ -41,8 +41,8 @@ static void spr_show(spr_t *s, bool on) {
     if (on) lv_obj_remove_flag(s->o, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s->o, LV_OBJ_FLAG_HIDDEN);
 }
-// 放大 k 倍,画在 (cx, bottom) 上:cx 是横向中点,bottom 是放大后的底边
-static void spr_put(spr_t *s, const lv_image_dsc_t *d, int k, int cx, int bottom) {
+// 放大 sc/256 倍(256 = 原样,真卡上原样画最快),画在 (cx, bottom) 上:cx 是横向中点,bottom 是放大后的底边
+static void spr_put_scaled(spr_t *s, const lv_image_dsc_t *d, int sc, int cx, int bottom) {
     if (!d) { spr_show(s, false); return; }
     int w = d->header.w, h = d->header.h;
     if (s->src != d) {
@@ -50,12 +50,12 @@ static void spr_put(spr_t *s, const lv_image_dsc_t *d, int k, int cx, int bottom
         lv_image_set_src(s->o, d);
         lv_obj_set_size(s->o, w, h);
     }
-    uint16_t sc = (uint16_t)(256 * k);
-    if (s->scale != sc) { s->scale = sc; lv_image_set_scale(s->o, sc); }
-    int x = cx - w / 2, y = bottom - h / 2 - h * k / 2;
+    if (s->scale != sc) { s->scale = (uint16_t)sc; lv_image_set_scale(s->o, (uint32_t)sc); }
+    int x = cx - w / 2, y = bottom - h / 2 - h * sc / 512;
     if (x != s->x || y != s->y) { s->x = (int16_t)x; s->y = (int16_t)y; lv_obj_set_pos(s->o, x, y); }
     spr_show(s, true);
 }
+static void spr_put(spr_t *s, const lv_image_dsc_t *d, int k, int cx, int bottom) { spr_put_scaled(s, d, 256 * k, cx, bottom); }
 static void spr_tint(spr_t *s, uint32_t color, uint8_t opa) {
     if (s->tint == color && s->tint_opa == opa) return;
     s->tint = color; s->tint_opa = opa;
@@ -118,8 +118,7 @@ static const char *combo_name(uint8_t a, uint8_t b) {
 // =====================================================================================================
 typedef struct { lv_obj_t *l; int32_t t; int16_t x, y; } num_t;
 static struct {
-    lv_obj_t *world;             // 场地上的东西都挂在它下面(震屏时整块挪)
-    int16_t wx, wy;
+    lv_obj_t *world;             // 场地上的东西都挂在它下面
     spr_t hero[2], hat[2], foe[MBT_MAXF], dizzy[MBT_MAXF], shot[MBT_MAXSHOT], star[MBT_MAXSTAR], spark[SPARKS];
     int32_t spark_t[SPARKS];
     bar_t fhp[MBT_MAXF];
@@ -231,7 +230,7 @@ void morph_gfx_battle_event(const morph_run_t *r, const mbt_ev_t *e) {
             n->t = 800; n->x = e->x; n->y = (int16_t)(GROUND + e->y - 10);
             show(n->l, true);
             for (int i = 0; i < SPARKS; i++)
-                if (B.spark_t[i] <= 0) { B.spark_t[i] = 150; spr_put(&B.spark[i], morph_art_fx(MX_SPARK), e->a & 1 ? 2 : 1, e->x, GROUND + e->y + 10); break; }
+                if (B.spark_t[i] <= 0) { B.spark_t[i] = 150; spr_put(&B.spark[i], e->a & 1 ? morph_art_fx2(MX_SPARK) : morph_art_fx(MX_SPARK), 1, e->x, GROUND + e->y + 10); break; }
             sfx_play(SFX_HIT);
             break;
         }
@@ -323,17 +322,14 @@ static void update_cine(const morph_battle_t *b) {
 static void update_battle(const morph_run_t *r, uint32_t dt) {
     const morph_battle_t *b = &r->bt;
     B.anim += (int32_t)dt;
-    // 震屏:整块场地挪几个像素
-    int sx = 0, sy = 0;
-    if (b->shake_t > 0) { sx = (int)((B.anim / 30) % 5) - 2; sy = (int)((B.anim / 40) % 3) - 1; }
-    if (sx != B.wx || sy != B.wy) { B.wx = (int16_t)sx; B.wy = (int16_t)sy; lv_obj_set_pos(B.world, sx, sy); }
+    // 不震屏:整块场地一挪就是整屏重画(真卡上一次 60–70 ms),打中的顿一下和火花已经够有感觉
     // 人
     for (int p = 0; p < b->nh; p++) {
         const mbt_hero_t *h = &b->h[p];
         bool left = h->face < 0;
         int hx = (int)h->x, lift = 0;
         if (h->st == HS_CHASE) { int t = h->t > 400 ? 400 : h->t; lift = (t < 200 ? t : 400 - t) / 5; }
-        spr_put(&B.hero[p], morph_art_pose((uint8_t)p, hero_pose(h, B.anim), left), 2, hx, GROUND - lift);
+        spr_put(&B.hero[p], morph_art_pose2((uint8_t)p, hero_pose(h, B.anim), left), 1, hx, GROUND - lift);
         spr_rot(&B.hero[p], h->st == HS_ROLL ? (int)(h->t * 12 % 3600) * (left ? -1 : 1) : 0);
         uint32_t tint = 0; uint8_t opa = 0;
         if (h->flash > 0) { tint = 0xFFFFFF; opa = LV_OPA_70; }
@@ -341,7 +337,7 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
         else if (h->st == HS_REVIVE) { tint = 0x81C784; opa = LV_OPA_40; }
         spr_tint(&B.hero[p], tint, opa);
         if (h->form != FORM_NORMAL && h->st != HS_DOWN && h->st != HS_ROLL)
-            spr_put(&B.hat[p], morph_art_fx(h->form == FORM_ICE ? MX_HAT_ICE : MX_HAT_VOLT), 2, hx + (left ? -1 : 1), GROUND - lift - 26);
+            spr_put(&B.hat[p], morph_art_fx2(h->form == FORM_ICE ? MX_HAT_ICE : MX_HAT_VOLT), 1, hx + (left ? -1 : 1), GROUND - lift - 26);
         else spr_show(&B.hat[p], false);
         show(B.hi5[p], h->pend);
         if (h->pend) lv_obj_set_pos(B.hi5[p], hx - 15, GROUND - 62);
@@ -362,10 +358,10 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
         if (!f->used) { spr_show(&B.foe[i], false); spr_show(&B.dizzy[i], false); bar_show(&B.fhp[i], false); continue; }
         const mbt_foe_def_t *d = &morph_foes[f->type];
         uint8_t img = f->type == ET_ICE ? MF_ICE : f->type == ET_VOLT ? MF_VOLT : f->type == ET_BEAR ? MF_BEAR : MF_CLOCK;
-        int k = f->type == ET_BIGCLOCK ? 3 : 2;
+        int k = f->type == ET_BIGCLOCK ? 3 : 2;   // 大发条兵是发条兵的三倍(只有它在画面上放大:1.5 × 两倍图)
         uint8_t frame = f->st == FS_WALK ? (uint8_t)((B.anim / 220) % 2) : 0;
         int fx = (int)f->x, fy = GROUND + (int)f->y;
-        spr_put(&B.foe[i], morph_art_foe(img, frame, f->face < 0), k, fx, fy);
+        spr_put_scaled(&B.foe[i], morph_art_foe2(img, frame, f->face < 0), k * 128, fx, fy);
         uint32_t tint = 0; uint8_t opa = 0;
         if (f->hp <= 0) { tint = 0xFFFFFF; opa = LV_OPA_COVER; }
         else if (f->flash > 0) { tint = 0xFFFFFF; opa = LV_OPA_70; }
@@ -402,12 +398,12 @@ static void update_battle(const morph_run_t *r, uint32_t dt) {
         if (!any) { bar_show(&B.boss, false); show(B.boss_name, false); }
     }
     for (int i = 0; i < MBT_MAXSHOT; i++) {
-        if (b->shot[i].used) spr_put(&B.shot[i], morph_art_fx(MX_ICEBALL), 2, (int)b->shot[i].x, GROUND - 12);
+        if (b->shot[i].used) spr_put(&B.shot[i], morph_art_fx2(MX_ICEBALL), 1, (int)b->shot[i].x, GROUND - 12);
         else spr_show(&B.shot[i], false);
     }
     for (int i = 0; i < MBT_MAXSTAR; i++) {
         if (b->star[i].used) {
-            spr_put(&B.star[i], morph_art_fx(MX_STAR), 2, (int)b->star[i].x, GROUND + (int)b->star[i].y);
+            spr_put(&B.star[i], morph_art_fx2(MX_STAR), 1, (int)b->star[i].x, GROUND + (int)b->star[i].y);
             spr_tint(&B.star[i], FORM_COLOR[b->star[i].form], LV_OPA_50);
         } else {
             spr_show(&B.star[i], false);

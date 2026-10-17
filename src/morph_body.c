@@ -55,8 +55,8 @@ static uint8_t advance(morph_body_t *b, const morph_level_t *L, bool pit_check) 
 
 void mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir) {
     memset(b, 0, sizeof *b);   // 连填充字节一起清零,两边整块比较才一样
-    b->x = b->safe_x = x_px * MB_SUB;
-    b->y = b->safe_y = y_px * MB_SUB;
+    b->x = x_px * MB_SUB;
+    b->y = y_px * MB_SUB;
     b->dir = dir;
     b->st = MB_WALK;
 }
@@ -79,13 +79,24 @@ void mb_key(morph_body_t *b, const morph_level_t *L, uint8_t key) {
 }
 
 static unsigned step_ground(morph_body_t *b, const morph_level_t *L) {
-    b->safe_x = b->x;
-    b->safe_y = b->y;
     uint8_t was = b->st;
     b->st = advance(b, L, true);
     if (was == MB_WALK && b->st != MB_WALK) return MB_EV_STOP;
     if (was != MB_WALK && b->st == MB_WALK) return MB_EV_GO;
     return 0;
+}
+
+// 只看 x、dir、关卡:从 x 那列往 dir 的反方向找第一列不是坑的,站到这列最上面那块(实心或平台)的顶上,
+// 贴着坑那一边(dir 那边)不悬空。关卡两头是墙,找不到就停在最边上那列。
+static void respawn(morph_body_t *b, const morph_level_t *L) {
+    int c = fdiv(b->x);
+    if (c < 0) c = 0;
+    if (c >= L->cols) c = L->cols - 1;
+    while (ml_pit(L, c, 0) && c - b->dir >= 0 && c - b->dir < L->cols) c -= b->dir;
+    int r = 0;
+    while (r < ML_ROWS - 1 && ml_tile(L, c, r) == MT_EMPTY) r++;
+    b->x = b->dir > 0 ? (int32_t)(c + 1) * T - HW : (int32_t)c * T + HW;
+    b->y = (int32_t)r * T;
 }
 
 static unsigned step_air(morph_body_t *b, const morph_level_t *L) {
@@ -112,9 +123,8 @@ static unsigned step_air(morph_body_t *b, const morph_level_t *L) {
         }
     }
     b->y = ny;
-    if (b->y - BH >= ML_ROWS * T) {   // 掉出关卡底 → 回到最近站稳的地方
-        b->x = b->safe_x;
-        b->y = b->safe_y;
+    if (b->y - BH >= ML_ROWS * T) {   // 掉出关卡底 → 回到坑边
+        respawn(b, L);
         b->vy = 0;
         b->flaps = 0;
         b->st = MB_WALK;

@@ -58,7 +58,7 @@ static void t_edge(void) {
     CHECK(b.st == MB_EDGE);
     CHECK(b.y == GROUND);
     CHECK(b.x >= PX(9 * 32) && b.x < PX(10 * 32));                  // 在坑边那格(9 列)之内
-    CHECK(b.x + PX(MB_W / 2) - PX(10 * 32) <= PX(MB_W / 2));        // 悬空不超过半个身宽
+    CHECK(b.x + PX(MB_W / 2) == PX(10 * 32));                       // 贴着坑边,不悬空
     int32_t xe = b.x;
     ev = run_ms(&b, L, 2000);
     CHECK(b.x == xe && b.st == MB_EDGE);
@@ -133,7 +133,7 @@ static void t_jump_pits(void) {
     ev = jump_from_edge(&b, 0);
     CHECK(ev & MB_EV_PIT);
     CHECK(!(ev & MB_EV_LAND));
-    CHECK(b.x == ex && b.y == ey && b.x == b.safe_x && b.y == b.safe_y);
+    CHECK(b.x == ex && b.y == ey);
     CHECK(b.dir == 1 && b.vy == 0 && b.flaps == 0);
     CHECK(b.st != MB_AIR);
 
@@ -246,30 +246,102 @@ static void t_determinism(void) {
 
 // 前面的东西没了(计划 2 的冰块会变)→ 接着走,返回 MB_EV_GO
 static void t_go(void) {
-    static uint8_t tiles[ML_ROWS * 60];
-    memcpy(tiles, morph_level_test.tiles, sizeof tiles);
+    static uint8_t tiles[ML_ROWS * 256];
+    const int W = morph_level_test.cols;
+    CHECK(ML_ROWS * W <= (int)sizeof tiles);
+    memcpy(tiles, morph_level_test.tiles, (size_t)(ML_ROWS * W));
     morph_level_t lv = morph_level_test;
     lv.tiles = tiles;
     morph_body_t b;
     mb_init(&b, 80, 224, 1);
     run_until(&b, &lv, MB_EV_STOP, 10000);
     CHECK(b.st == MB_EDGE);
-    tiles[7 * 60 + 10] = MT_SOLID;   // 坑填上了
+    tiles[7 * W + 10] = MT_SOLID;   // 坑填上了
     unsigned ev = mb_step(&b, &lv);
     CHECK(ev & MB_EV_GO);
     CHECK(b.st == MB_WALK);
-    tiles[6 * 60 + 13] = MT_SOLID;   // 前面多了一块
+    tiles[6 * W + 13] = MT_SOLID;   // 前面多了一块
     ev = run_until(&b, &lv, MB_EV_STOP, 5000);
     CHECK(b.st == MB_WALL);
-    tiles[6 * 60 + 13] = MT_EMPTY;   // 又没了
+    tiles[6 * W + 13] = MT_EMPTY;   // 又没了
     ev = mb_step(&b, &lv);
     CHECK(ev & MB_EV_GO);
     CHECK(b.st == MB_WALK);
 }
 
+// 另一张卡只收到 x y vy dir st flaps:拿这几样重建的人,往后按同样的键走,每一步都一样。
+static void copy_sent(morph_body_t *dst, const morph_body_t *src) {
+    mb_init(dst, 0, 0, 1);
+    dst->x = src->x; dst->y = src->y; dst->vy = src->vy;
+    dst->dir = src->dir; dst->st = src->st; dst->flaps = src->flaps;
+}
+
+static bool same_sent(const morph_body_t *a, const morph_body_t *b) {
+    return a->x == b->x && a->y == b->y && a->vy == b->vy &&
+           a->dir == b->dir && a->st == b->st && a->flaps == b->flaps;
+}
+
+#define RB_STEPS (45000 / MB_STEP_MS)   // 前 30 秒里挑重建点,每个点往后再跑 15 秒
+#define RB_AFTER (15000 / MB_STEP_MS)
+static int8_t rb_key[RB_STEPS];          // 这一步之前按的键,-1 = 没按
+
+static void t_rebuild(void) {
+    // 直接的例子:三格坑不扑腾,半空中重建,两个都回到同一个坑边
+    morph_body_t a, b;
+    mb_init(&a, 18 * 32 + 16, 224, 1);
+    run_until(&a, L, MB_EV_STOP, 10000);
+    int32_t ex = a.x;
+    mb_key(&a, L, MK_JUMP);
+    run_ms(&a, L, 600);
+    CHECK(a.st == MB_AIR && a.x > PX(21 * 32));   // 在坑上空
+    copy_sent(&b, &a);
+    unsigned ea = run_until(&a, L, MB_EV_PIT, 5000);
+    unsigned eb = run_until(&b, L, MB_EV_PIT, 5000);
+    CHECK((ea & MB_EV_PIT) && (eb & MB_EV_PIT));
+    run_ms(&a, L, 500);
+    run_ms(&b, L, 500);
+    CHECK(a.st == MB_EDGE && b.st == MB_EDGE);
+    CHECK(same_sent(&a, &b));
+    CHECK(a.x == ex && a.y == GROUND);
+
+    // 随机的人手速按键(每 200-600 ms 一下),每隔 137 ms 重建一次
+    uint32_t seed = 777u, next = 0;
+    for (int i = 0; i < RB_STEPS; i++) {
+        uint32_t t = (uint32_t)i * MB_STEP_MS;
+        rb_key[i] = -1;
+        if (t >= next) {
+            seed = seed * 1103515245u + 12345u;
+            rb_key[i] = (seed >> 16) % 3 ? MK_JUMP : MK_TURN;
+            seed = seed * 1103515245u + 12345u;
+            next = t + 200 + (seed >> 16) % 401;
+        }
+    }
+    morph_body_t orig;
+    mb_init(&orig, 18 * 32 + 16, 224, 1);
+    int points = 0, air_points = 0, pits = 0, diverged = 0;
+    for (int i = 0; i < 30000 / MB_STEP_MS; i++) {
+        if (rb_key[i] >= 0) mb_key(&orig, L, (uint8_t)rb_key[i]);
+        mb_step(&orig, L);
+        if (((i + 1) * MB_STEP_MS) / 137 == (i * MB_STEP_MS) / 137) continue;
+        points++;
+        if (orig.st == MB_AIR) air_points++;
+        a = orig;
+        copy_sent(&b, &orig);
+        for (int j = i + 1; j < i + 1 + RB_AFTER; j++) {
+            if (rb_key[j] >= 0) { mb_key(&a, L, (uint8_t)rb_key[j]); mb_key(&b, L, (uint8_t)rb_key[j]); }
+            unsigned ev = mb_step(&a, L);
+            mb_step(&b, L);
+            if (ev & MB_EV_PIT) pits++;
+            if (!same_sent(&a, &b)) { diverged++; break; }
+        }
+    }
+    CHECK(diverged == 0);
+    CHECK(points > 200 && air_points > 20 && pits > 0);   // 真的测到了半空中、掉坑
+}
+
 int main(void) {
     t_walk(); t_turn(); t_edge(); t_step_down(); t_wall(); t_jump_pits();
-    t_flap_cap(); t_platform(); t_big_dt(); t_determinism(); t_go();
+    t_flap_cap(); t_platform(); t_big_dt(); t_determinism(); t_go(); t_rebuild();
     if (fails) { printf("test_body: %d FAIL\n", fails); return 1; }
     printf("test_body: ok\n");
     return 0;

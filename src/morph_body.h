@@ -20,8 +20,9 @@ typedef struct {
     int16_t vy;          // 1/16 像素每步,向下为正
     int8_t dir;          // +1 朝右,-1 朝左
     uint8_t st, flaps;   // morph_body_st_t;这次在空中扑腾了几下
-    int32_t safe_x, safe_y;  // 最近一次稳稳站着的地方(掉坑后从这里冒出来)
 } morph_body_t;
+// 没有别的藏着的状态:另一张卡拿这 6 样就能重建一模一样的人。
+// 掉出关卡底:从 x 那列往 dir 的反方向找第一列不是坑的,站到它最高的面上、贴着坑那一边,dir 不变。
 
 void mb_init(morph_body_t *b, int x_px, int y_px, int8_t dir);
 void mb_key(morph_body_t *b, const morph_level_t *L, uint8_t key);  // morph_key_t

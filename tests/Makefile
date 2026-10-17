@@ -4,7 +4,7 @@ CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fn
           -I../src -I.
 OUT := .build
 HDRS := $(wildcard ../src/*.h) $(wildcard *.h)
-TESTS := test_level test_body test_play test_keys test_art
+TESTS := test_level test_body test_play test_keys test_art test_peer_glue
 
 all: $(addprefix $(OUT)/,$(TESTS))
 	@for t in $(TESTS); do $(OUT)/$$t || exit 1; done
@@ -29,5 +29,9 @@ $(OUT)/test_keys: test_keys.c ../src/morph_keys.c $(HDRS) | $(OUT)
 # 常量图:宿主上没有 LVGL,用 stub/lvgl.h(只有 lv_image_dsc_t)
 $(OUT)/test_art: test_art.c ../src/morph_art.c $(HDRS) stub/lvgl.h | $(OUT)
 	$(CC) $(CFLAGS) -Istub $(filter %.c,$^) -o $@
+
+# Mac 冒充队友的 C 接口:peer_glue.c 自己包含了其余的规则源文件(link_peer.py 只编 morph_play.c 和它)
+$(OUT)/test_peer_glue: test_peer_glue.c peer_glue.c duo.c ../src/morph_play.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
 
 .PHONY: all

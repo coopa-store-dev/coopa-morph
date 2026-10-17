@@ -1,7 +1,6 @@
 // tests/test_art.c —— 常量图:人物每个姿势两个方向都是 16×16 的 RGB565A8、朝左那张是朝右的水平翻转、姿势各不相同;
 // 越界给库巴站立。格子图都不空;关卡格子(地面顶、地面里、砖、单向平台)正好一格大(LVGL 平铺时不放大,生成时放大好了)。
 #include "morph_art.h"
-#include "morph_level.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -67,6 +66,18 @@ static void test_out_of_range(void) {
     assert(morph_art_pose(1, MA_POSES, true) == morph_art_pose(0, MA_IDLE, true));
     assert(morph_art_pose(255, 255, false) == morph_art_pose(0, MA_IDLE, false));
     assert(morph_art_tile(MT_IMG_COUNT) == NULL);
+    // 怪:每只两帧、两个方向都在,朝左的是朝右的水平翻转;特效都在
+    for (uint8_t f = 0; f < MF_COUNT; f++)
+        for (uint8_t fr = 0; fr < 2; fr++) {
+            const lv_image_dsc_t *r = morph_art_foe(f, fr, false), *l = morph_art_foe(f, fr, true);
+            int w = r->header.w, h = r->header.h;
+            assert(w == (f == MF_BEAR ? 24 : 16) && h == w && l->header.w == w);
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) assert(r->data[w * h * 2 + y * w + x] == l->data[w * h * 2 + y * w + (w - 1 - x)]);
+        }
+    assert(morph_art_foe(MF_COUNT, 0, false) == morph_art_foe(MF_CLOCK, 0, false));
+    for (uint8_t x = 0; x < MX_COUNT; x++) assert(morph_art_fx(x) && morph_art_fx(x)->data_size > 0);
+    assert(morph_art_fx(MX_COUNT) == NULL);
     assert(morph_art_tile(255) == NULL);
 }
 
@@ -79,7 +90,7 @@ static void test_tiles(void) {
     const uint8_t cells[] = { MT_IMG_TOP, MT_IMG_FILL, MT_IMG_BRICK, MT_IMG_PLAT };
     for (size_t i = 0; i < sizeof cells; i++) {
         const lv_image_dsc_t *d = morph_art_tile(cells[i]);
-        assert(d->header.w == ML_TILE && d->header.h == ML_TILE);
+        assert(d->header.w == 32 && d->header.h == 32);
     }
 }
 

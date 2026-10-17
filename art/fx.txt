@@ -1,0 +1,54 @@
+# 特效和变身帽子。顺序 = morph_fx_t,大小各不一样,不翻转。
+# 冰淇淋帽子:粉色冰淇淋球插在蛋筒里。
+== hat_ice
+..kkkk..
+.kllllk.
+klllllck
+klPllPlk
+.kkkkkk.
+..knnk..
+..knbk..
+...kk...
+# 电池帽子:黄色电池,顶上灰色电池头,中间一道闪电。
+== hat_volt
+...kk...
+...hh...
+.kkkkkk.
+kyyykyyk
+kyykkyyk
+kyykyyyk
+kooooook
+.kkkkkk.
+# 晕的星星(照库巴格斗)。
+== star
+....k....
+...kyk...
+kkkkykkkk
+kyyyyyyyk
+.kyyyyyk.
+..kyyyk..
+.kyyoyyk.
+.kyk.kyk.
+.kk...kk.
+# 打中的火花(照库巴格斗)。
+== spark
+.....r......
+..r..y...r..
+...y.y..y...
+....ywwy....
+.yyywwwwyy..
+r..wwwwww.yr
+..yywwwwyy..
+....ywwy....
+...y.yy.y...
+..r..y...r..
+.....r......
+............
+# 冰球。
+== iceball
+.kkkk.
+kwwhhk
+kwhhhk
+khhhHk
+khhHHk
+.kkkk.

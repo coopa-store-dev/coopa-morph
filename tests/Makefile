@@ -4,7 +4,7 @@ CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fn
           -I../src -I.
 OUT := .build
 HDRS := $(wildcard ../src/*.h) $(wildcard *.h)
-TESTS := test_level test_body test_play test_keys test_art test_peer_glue
+TESTS := test_run test_net test_art
 
 all: $(addprefix $(OUT)/,$(TESTS))
 	@for t in $(TESTS); do $(OUT)/$$t || exit 1; done
@@ -13,27 +13,17 @@ all: $(addprefix $(OUT)/,$(TESTS))
 $(OUT):
 	mkdir -p $@
 
-$(OUT)/test_level: test_level.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
-
-$(OUT)/test_body: test_body.c ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
-
-# 两个 morph_play_t 经假管道(duo.c)联机
-$(OUT)/test_play: test_play.c duo.c ../src/morph_play.c ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
-
-$(OUT)/test_keys: test_keys.c ../src/morph_keys.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
-
 # 常量图:宿主上没有 LVGL,用 stub/lvgl.h(只有 lv_image_dsc_t)
 $(OUT)/test_art: test_art.c ../src/morph_art.c $(HDRS) stub/lvgl.h | $(OUT)
 	$(CC) $(CFLAGS) -Istub $(filter %.c,$^) -o $@
 
-# Mac 冒充队友的 C 接口:peer_glue.c 自己包含了其余的规则源文件(link_peer.py 只编 morph_play.c 和它),
-# 所以那三个只当依赖、不进编译行
-GLUE_INC := ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c
-$(OUT)/test_peer_glue: test_peer_glue.c peer_glue.c duo.c ../src/morph_play.c $(GLUE_INC) $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) $(filter-out $(GLUE_INC),$(filter %.c,$^)) -o $@
+# 一趟冒险:乱按的人一个人 / 两个人打很多趟,加几条规则单测
+$(OUT)/test_run: test_run.c ../src/morph_run.c ../src/morph_battle.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -lm -o $@
+
+# 两张卡延迟锁步:两份 morph_net_t 经假链路打完整趟(开优化、不开 sanitizer 跑整趟,另编一个 ASan 版跑一样的)
+$(OUT)/test_net: test_net.c ../src/morph_net.c ../src/morph_run.c ../src/morph_battle.c $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -lm -o $@
 
 .PHONY: all
+

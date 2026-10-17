@@ -1,67 +1,49 @@
-// src/morph_app.c —— 库巴变变变的入口表和流程(计划 1:试验关,照 coopa-fight 的 fight_app.c):
-//   首页「两人联机 / 回菜单」→ 找队友(kit_link,频道 MORPH_CH)→ 试验关。主动方是爸爸、被连方是库巴
-//   (计划 1 临时,选人在计划 2);断线时停在试验关上,盖一行「等队友回来」。
-// 按键:首页 ▲▼ 选、● 确定;找队友页 ● 回首页;试验关 ▲ 跳 / 扑腾、▼ 掉头(morph_keys.h),● 长按回首页
-// (计划 1 临时),别的不算。
-// 一局和联机在 morph_play.c;画面在 morph_view.c。计划 1 没有存档。
-// 调试通道(devlink BOS1/2/3/4 → admin 'a' 'b' 'c' 'd',只在前台时认):'a' 一个人进试验关、'b' 摄像机步长
-// 1 → 2 → 4 → 8 → 1、'c' 云和草丛开 / 关、'd' 6 个怪的替身(放大两倍的人物图,摆在摄像机这一屏、跟着世界卷)放 / 收
-// (Ruling 15,真卡实验量 6 只怪时的刷屏;状态行的对象数跟着多 6 个)。
+// src/morph_app.c —— 库巴变变变的入口表和流程:首页 → 一个人玩 / 两人联机(找队友 → 选人)→ 一趟冒险(地图 ↔ 战斗,
+// morph_run.c;联机时两边各跑一份,morph_net.c 只传按键)→ 通关 / 全倒页。画面在 morph_gfx.c。
+// 按键:首页 ▲▼ 选、● 确定;找队友页 ● 回首页;选人页 ▲ 库巴、▼ 爸爸、● 回首页;冒险里三个键原样交给 morph_run
+// (联机时交给 morph_net,晚几步两边一起生效;▼ ● 的长按也交);结束页 ● 回首页。
+// 调试通道(devlink BOS1/2/3/4 → admin 'a' 'b' 'c' 'd',只在前台时认):'a' 直接开一趟、'b' 自己能量加满、
+// 'c' 这场的怪全打死、'd' 直接走到 boss 前一排(模拟器 / 真卡自测用)。
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "kit_app.h"
 #include "kit_art.h"
 #include "kit_link.h"
+#include "kit_sfx.h"
 #include "morph_art.h"
-#include "morph_keys.h"
-#include "morph_levels.h"
-#include "morph_play.h"
+#include "morph_gfx.h"
+#include "morph_net.h"
+#include "morph_run.h"
 #include "morph_texts.h"
-#include "morph_view.h"
 #include "ui_kit.h"
 
-#define MORPH_CH 0x7AC4u  // 联机频道(库巴大作战 0x7AC1、传炸弹 0x7AC2、格斗 0x7AC3)
 #define STAT_MS 2000      // 状态行的帧时间、刷屏时间按这么长一段统计
-#define CH_KID 0
-#define CH_DAD 1
+#define MORPH_CH 0x7AC4u  // 联机频道(库巴大作战 0x7AC1、传炸弹 0x7AC2、格斗 0x7AC3)
 
-typedef enum { PG_TITLE = 0, PG_LINK, PG_GAME } page_t;
+typedef enum { PG_TITLE = 0, PG_RUN, PG_END, PG_LINK, PG_PICK } page_t;
 
-static morph_play_t s_play;
+static morph_run_t s_run;      // 一个人玩
+static morph_net_t s_net;      // 两人联机(里面有一份 run)
+static bool s_link;            // 现在是联机
 static page_t s_page;
-static uint8_t s_sel;          // 首页光标:0 两人联机、1 回菜单
+static uint8_t s_sel;          // 首页光标:0 一个人玩、1 两人联机、2 回菜单
 static bool s_up;
 static uint32_t s_session;
-static bool s_view;            // 试验关的画面建着
-static uint8_t s_view_me;      // 按哪个人建的
-static char s_note[160];       // 找队友页上次画的内容(没变就不重画)
-static uint8_t s_cam = 1;      // 摄像机步长(实验)
-static bool s_decor = true;    // 云和草丛(实验)
-static bool s_crowd;           // 怪的替身(实验)
-// 状态行的统计:这一段(STAT_MS)正在攒的、上一段的结果
+static char s_note[160];       // 找队友 / 选人页上次画的内容(没变就不重画)
+static uint32_t s_toast_ms;
+static int8_t s_shown = -1;    // 现在建的是哪一页画面(RUN_MAP 当地图、RUN_BATTLE 当战斗;-1 没建)
+// 状态行的统计
 static uint32_t s_win_ms, s_win_n, s_win_sum, s_win_max;
 static uint16_t s_dt_avg, s_dt_max;
-static bool s_hooked;          // 刷屏回调挂着
+static bool s_hooked;
 static int64_t s_refr_at;
 static bool s_refr_drew;
-static uint32_t s_draw_n, s_draw_sum, s_draw_max;  // 微秒
-static uint32_t s_draw_avg_us, s_draw_max_us, s_draw_n_win, s_draw_sum_us;
-static uint32_t s_bw_avg, s_bw_max;  // 'B' 从该发到交出去(毫秒,morph_play_t 的 b_wait_*)
+static uint32_t s_draw_n, s_draw_sum, s_draw_max, s_draw_max_us, s_draw_n_win, s_draw_sum_us;
 
-static bool link_send(void *ctx, const void *m, size_t n) {
-    (void)ctx;
-    return kit_link_send(m, n);
-}
-
-static long px(int32_t sub) { return (long)(sub >= 0 ? sub / MB_SUB : -((-sub + MB_SUB - 1) / MB_SUB)); }
-
-// ---- 刷屏时间 ----
-// 外壳的 frame(dt) 是游戏任务两次醒来之间的时间;LVGL 在另一个任务(esp_lvgl_port)里重画、往屏上送,
-// 只是和游戏任务抢同一把锁,所以 dt 只在「重画 + 游戏这一帧」超过 20 ms 时才变长,看不出重画本身多久。
-// 这里另量:一次重画从 LV_EVENT_REFR_START 到 LV_EVENT_REFR_READY(只算真画了东西的那些;
-// 最后一块往屏上送的 DMA 可能还没传完)。回调在 LVGL 任务里、拿着锁调,和 frame 不会同时跑。
+// ---- 刷屏时间(照计划 1:frame 的 dt 不含 LVGL 重画,另量 REFR_START → REFR_READY) ----
 static void on_refr(lv_event_t *e) {
     lv_event_code_t c = lv_event_get_code(e);
     if (c == LV_EVENT_REFR_START) {
@@ -76,7 +58,6 @@ static void on_refr(lv_event_t *e) {
         if (us > s_draw_max) s_draw_max = us;
     }
 }
-
 static void hook(bool on) {
     lv_display_t *d = lv_display_get_default();
     if (on == s_hooked || !d) return;
@@ -89,44 +70,26 @@ static void hook(bool on) {
     }
     s_hooked = on;
 }
-
 static void stats(uint32_t dt) {
-    s_win_ms += dt;
-    s_win_n++;
-    s_win_sum += dt;
+    s_win_ms += dt; s_win_n++; s_win_sum += dt;
     if (dt > s_win_max) s_win_max = dt;
     if (s_win_ms < STAT_MS) return;
     s_dt_avg = (uint16_t)((s_win_sum + s_win_n / 2) / s_win_n);
     s_dt_max = (uint16_t)s_win_max;
-    s_draw_avg_us = s_draw_n ? s_draw_sum / s_draw_n : 0;
-    s_draw_max_us = s_draw_max;
-    s_draw_n_win = s_draw_n;
-    s_draw_sum_us = s_draw_sum;
-    s_bw_avg = s_play.b_wait_n ? s_play.b_wait_sum / s_play.b_wait_n : 0;
-    s_bw_max = s_play.b_wait_max;
+    s_draw_max_us = s_draw_max; s_draw_n_win = s_draw_n; s_draw_sum_us = s_draw_sum;
     s_win_ms = s_win_n = s_win_sum = s_win_max = 0;
     s_draw_n = s_draw_sum = s_draw_max = 0;
-    s_play.b_wait_n = s_play.b_wait_sum = s_play.b_wait_max = 0;  // morph_play 只管累加,一段一清
 }
 
-// ---- 画面 ----
-
-static void drop_view(void) {
-    if (!s_view) return;
-    morph_mv_destroy();
-    s_view = false;
-}
-
+// ---- 页面 ----
 static lv_obj_t *centered(lv_obj_t *scr, const lv_font_t *f, uint32_t color, const char *s, int y) {
     lv_obj_t *t = uk_text(scr, f, color, s);
     lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, y);
     return t;
 }
-
-// 常量图放大 scale 倍,(x, y) 是放大后的左上角(控件保持原图大小、以中心为轴放大)
-static void figure(lv_obj_t *scr, uint8_t ch, bool left, int x, int y, int scale) {
-    const lv_image_dsc_t *d = morph_art_pose(ch, MA_IDLE, left);
+static void figure(lv_obj_t *scr, uint8_t ch, uint8_t pose, bool left, int x, int y, int scale) {
+    const lv_image_dsc_t *d = morph_art_pose(ch, pose, left);
     lv_obj_t *o = lv_image_create(scr);
     lv_image_set_src(o, d);
     lv_obj_set_size(o, d->header.w, d->header.h);
@@ -135,98 +98,143 @@ static void figure(lv_obj_t *scr, uint8_t ch, bool left, int x, int y, int scale
     lv_obj_set_pos(o, x + (d->header.w * scale - d->header.w) / 2, y + (d->header.h * scale - d->header.h) / 2);
 }
 
+static morph_run_t *run(void) { return s_link ? &s_net.run : &s_run; }
+
 static void show_title(void) {
-    drop_view();
+    morph_gfx_destroy();
     s_page = PG_TITLE;
+    s_shown = -1;
     s_note[0] = 0;
     lv_obj_t *scr = uk_screen_new(UK_WALL);
-    centered(scr, UK_F36, UK_RED, TX_TITLE, 28);
-    centered(scr, UK_F12, UK_INK, TX_SUB, 76);
-    figure(scr, CH_KID, false, 44, 104, 4);
-    figure(scr, CH_DAD, true, 132, 104, 4);
-    const char *items[2] = { TX_LINK, TX_BACK };
-    for (int i = 0; i < 2; i++) {
+    centered(scr, UK_F36, UK_RED, TX_TITLE, 20);
+    centered(scr, UK_F12, UK_INK, TX_SUB, 66);
+    figure(scr, 0, MA_HEAVY, false, 44, 88, 4);
+    figure(scr, 1, MA_GUARD, true, 132, 88, 4);
+    const char *items[3] = { TX_SOLO, TX_LINK, TX_BACK };
+    for (int i = 0; i < 3; i++) {
         lv_obj_t *p = uk_pill(scr, UK_F24, s_sel == i ? UK_RED : UK_LINE, UK_WHITE, items[i]);
-        lv_obj_align(p, LV_ALIGN_TOP_MID, 0, 196 + i * 44);
+        lv_obj_align(p, LV_ALIGN_TOP_MID, 0, 170 + i * 44);
     }
     uk_screen_swap(scr);
 }
 
-static void note(const char *big, uint32_t color, const char *l1, const char *l2) {
+// 找队友 / 选人 / 出错:两个大头、一行大字、两行小字、底下提示(内容没变就不重画)
+static void note(const char *big, uint32_t color, const char *l1, const char *l2, const char *hint) {
     char key[sizeof(s_note)];
-    snprintf(key, sizeof(key), "%s|%s|%s|%lx", big, l1, l2, (unsigned long)color);
+    snprintf(key, sizeof(key), "%s|%s|%s|%s|%lx", big, l1, l2, hint, (unsigned long)color);
     if (!strcmp(key, s_note)) return;
     snprintf(s_note, sizeof(s_note), "%s", key);
-    drop_view();
+    morph_gfx_destroy();
+    s_shown = -1;
     lv_obj_t *scr = uk_screen_new(UK_WALL);
-    figure(scr, CH_KID, false, 40, 36, 4);
-    figure(scr, CH_DAD, true, 136, 36, 4);
+    figure(scr, 0, MA_IDLE, false, 40, 36, 4);
+    figure(scr, 1, MA_IDLE, true, 136, 36, 4);
     centered(scr, UK_F24, color, big, 120);
     centered(scr, UK_F12, UK_INK, l1, 170);
     centered(scr, UK_F12, UK_INK, l2, 200);
-    centered(scr, UK_F12, UK_INK, TX_HOME_HINT, 270);
+    centered(scr, UK_F12, UK_INK, hint, 270);
     uk_screen_swap(scr);
 }
 
-static void show_link(kit_link_state_t st) {
-    if (st == KIT_LINK_NO_MEMORY) note(TX_NO_MEM, UK_RED, TX_NO_MEM2, "");
-    else note(TX_SEARCH, UK_INK, TX_SEARCH2, TX_SEARCH3);
-}
-
-// 试验关:计划 1 主动方是爸爸、被连方和一个人试走是库巴
-static void show_game(void) {
-    uint8_t me = s_play.solo || !s_play.initiator ? CH_KID : CH_DAD;
-    if (s_view && me == s_view_me) return;
-    drop_view();
-    s_note[0] = 0;
+static void show_end(bool won) {
+    morph_gfx_destroy();
+    s_page = PG_END;
+    s_shown = -1;
     lv_obj_t *scr = uk_screen_new(UK_WALL);
-    morph_mv_create(scr, s_play.L, me, me == CH_KID ? CH_DAD : CH_KID);
+    figure(scr, 0, won ? MA_WIN : MA_KO, false, 44, 60, 4);
+    if (run()->nh == 2) figure(scr, 1, won ? MA_WIN : MA_KO, true, 132, 60, 4);
+    centered(scr, UK_F24, won ? UK_GOLD : UK_RED, won ? TX_WIN : TX_OVER, 160);
+    centered(scr, UK_F12, UK_INK, won ? TX_WIN2 : TX_OVER2, 200);
+    centered(scr, UK_F12, UK_INK, TX_END_HINT, 270);
     uk_screen_swap(scr);
-    s_view = true;
-    s_view_me = me;
+    sfx_play(won ? SFX_LEVEL_UP : SFX_GAME_OVER);
 }
 
-// ---- 流程 ----
+// 冒险里:地图 / 战斗换了就重建那一页
+static void sync_screen(void) {
+    int want = run()->phase == RUN_BATTLE ? RUN_BATTLE : RUN_MAP;
+    if (want == s_shown) return;
+    s_note[0] = 0;
+    lv_obj_t *scr = uk_screen_new(0x000000);
+    if (want == RUN_BATTLE) morph_gfx_battle(scr, run());
+    else morph_gfx_map(scr, run());
+    uk_screen_swap(scr);
+    s_shown = (int8_t)want;
+}
+
+static void start_solo(void) {
+    kit_link_stop();
+    s_link = false; s_up = false;
+    morph_mr_start(&s_run, 1, esp_random() | 1);
+    s_page = PG_RUN;
+    s_shown = -1;
+    sync_screen();
+    sfx_play(SFX_START);
+}
+
+static bool link_send(void *ctx, const void *m, size_t n) {
+    (void)ctx;
+    return kit_link_send(m, n);
+}
 
 static void to_title(void) {
     kit_link_stop();
-    s_up = false;
+    s_link = false; s_up = false;
     show_title();
 }
 
 static void to_link(void) {
-    morph_mp_init(&s_play, link_send, NULL, &morph_level_test);
-    s_up = false;
+    morph_mn_init(&s_net, link_send, NULL, esp_random() | 1);
+    s_link = true; s_up = false;
     s_page = PG_LINK;
     s_note[0] = 0;
-    kit_link_start(MORPH_CH);  // 内存不够时状态是 KIT_LINK_NO_MEMORY,找队友页照着说
+    kit_link_start(MORPH_CH);   // 内存不够时状态是 KIT_LINK_NO_MEMORY,找队友页照着说
 }
 
-static void to_solo(void) {
-    kit_link_stop();
-    s_up = false;
-    morph_mp_init(&s_play, NULL, NULL, &morph_level_test);
-    drop_view();  // 重建:摄像机直接对上出生点
-    s_page = PG_GAME;
-}
-
-// 联机:收发消息、断线,推一局
+// 联机:收发消息、断线、推进度
 static void link_frame(uint32_t dt) {
     kit_link_state_t st = kit_link_state();
     if (st == KIT_LINK_CONNECTED) {
         if (!s_up || kit_link_session() != s_session) {
             s_up = true;
             s_session = kit_link_session();
-            morph_mp_connected(&s_play, kit_link_initiator());
+            morph_mn_connected(&s_net, kit_link_initiator());
         }
         uint8_t msg[KIT_LINK_MSG_MAX];
         size_t n;
-        while ((n = kit_link_recv(msg, sizeof(msg))) > 0) morph_mp_on_msg(&s_play, msg, n);
+        while ((n = kit_link_recv(msg, sizeof(msg))) > 0) morph_mn_on_msg(&s_net, msg, n);
     } else if (s_up) {
         s_up = false;
-        morph_mp_lost(&s_play);
+        morph_mn_lost(&s_net);
     }
-    morph_mp_tick(&s_play, dt);
+    morph_mn_tick(&s_net, dt);
+}
+
+static void link_pages(void) {
+    kit_link_state_t st = kit_link_state();
+    char me[32];
+    switch (s_net.phase) {
+        case MN_IDLE:
+            s_page = PG_LINK;
+            if (st == KIT_LINK_NO_MEMORY) note(TX_NO_MEM, UK_RED, TX_NO_MEM2, "", TX_HOME_HINT);
+            else note(TX_SEARCH, UK_INK, TX_SEARCH2, TX_SEARCH3, TX_HOME_HINT);
+            break;
+        case MN_PICK:
+            s_page = PG_PICK;
+            if (s_net.me < 0) note(TX_PICK, UK_RED, TX_PICK_KID, TX_PICK_DAD, TX_HOME_HINT);
+            else {
+                snprintf(me, sizeof(me), TX_PICK_ME, morph_gfx_hero_name(s_net.me));
+                note(me, s_net.me ? UK_BLUE : UK_RED, TX_PICK_WAIT, "", TX_HOME_HINT);
+            }
+            break;
+        case MN_BAD:
+            s_page = PG_LINK;
+            note(TX_BAD, UK_RED, TX_BAD2, "", TX_HOME_HINT);
+            break;
+        default:   // 在打(或者断线等队友)
+            if (s_page != PG_RUN) { s_page = PG_RUN; s_shown = -1; sfx_play(SFX_START); }
+            break;
+    }
 }
 
 static void morph_enter(const kit_links_t *links) {
@@ -237,95 +245,110 @@ static void morph_enter(const kit_links_t *links) {
 }
 
 static void morph_leave(void) {
-    drop_view();
+    morph_gfx_destroy();
+    s_link = false; s_up = false;
     hook(false);
     s_page = PG_TITLE;
+    s_shown = -1;
 }
 
 static bool morph_input(const kit_input_t *in) {
-    if (s_page == PG_GAME) {
-        if (in->key == KIT_KEY_OK && in->long_press) {  // 计划 1 临时:● 长按回首页(真卡实验出得来)
-            to_title();
-            return false;
-        }
-        int k = morph_key_of((uint8_t)in->key, in->long_press);
-        if (k >= 0) morph_mp_key(&s_play, (uint8_t)k);
+    if (s_page == PG_RUN) {
+        if (s_link) morph_mn_key(&s_net, (uint8_t)in->key, in->long_press);
+        else morph_mr_input(&s_run, 0, (uint8_t)in->key, in->long_press);
         return false;
     }
     if (in->long_press) return false;
-    if (s_page == PG_TITLE) {
-        if (in->key == KIT_KEY_OK) {
-            if (s_sel == 1) return true;  // 回菜单
-            to_link();
-            return false;
-        }
-        s_sel ^= 1;  // 两项:▲▼ 都是换一项
-        show_title();
+    if (s_page == PG_END) {
+        if (in->key == KIT_KEY_OK) to_title();
         return false;
     }
-    if (in->key == KIT_KEY_OK) to_title();  // 找队友页:● 回首页
+    if (s_page == PG_LINK) {
+        if (in->key == KIT_KEY_OK) to_title();
+        return false;
+    }
+    if (s_page == PG_PICK) {
+        if (in->key == KIT_KEY_OK) to_title();
+        else morph_mn_pick(&s_net, in->key == KIT_KEY_UP ? 0 : 1);
+        return false;
+    }
+    if (in->key == KIT_KEY_OK) {
+        if (s_sel == 2) return true;   // 回菜单
+        if (s_sel == 0) start_solo();
+        else to_link();
+        return false;
+    }
+    s_sel = (uint8_t)((s_sel + (in->key == KIT_KEY_UP ? 2 : 1)) % 3);
+    show_title();
     return false;
 }
 
 static void morph_frame(uint32_t dt) {
     stats(dt);
-    if (s_page == PG_TITLE) return;
-    if (s_play.solo) morph_mp_tick(&s_play, dt);
-    else link_frame(dt);
-    if (s_play.phase == MP_WAIT) {  // 还在找、还在对暗号
-        s_page = PG_LINK;
-        show_link(kit_link_state());
-        return;
+    if (s_page == PG_TITLE || s_page == PG_END) return;
+    if (s_link) {
+        link_frame(dt);
+        link_pages();
+        if (s_page != PG_RUN) return;
+        if (s_net.phase == MN_PAUSED) {   // 断线:画面停着,隔一会儿冒一次「等队友回来」
+            s_toast_ms += dt;
+            if (s_toast_ms >= 900) { s_toast_ms = 0; uk_toast(TX_WAIT_PEER, UK_INK, 1000); }
+        }
+    } else {
+        morph_mr_tick(&s_run, dt);
     }
-    s_page = PG_GAME;
-    show_game();
-    morph_mv_update(&s_play, dt);
+    morph_run_t *r = run();
+    if (r->phase == RUN_WIN || r->phase == RUN_OVER) { show_end(r->phase == RUN_WIN); kit_link_stop(); return; }
+    sync_screen();
+    if (r->phase == RUN_BATTLE) {
+        mbt_ev_t e;
+        while (morph_mbt_event(&r->bt, &e)) morph_gfx_battle_event(r, &e);
+    }
+    morph_gfx_update(r, dt);
 }
 
-// 在关卡里走着不熄屏;断线等队友时照常熄(连着的时候外壳本来就不熄)
-static unsigned morph_busy(void) { return s_page == PG_GAME && s_play.phase == MP_PLAY ? KIT_BUSY_TIMING : 0; }
+static unsigned morph_busy(void) { return s_page == PG_RUN ? KIT_BUSY_TIMING : 0; }
 
 static kit_admin_t morph_admin(int cmd, bool active) {
     if (!active) return KIT_ADMIN_NOT_MINE;
     switch (cmd) {
-        case 'a': to_solo(); break;
-        case 'b':
-            s_cam = s_cam >= 8 ? 1 : (uint8_t)(s_cam * 2);
-            morph_mv_set_cam_step(s_cam);
-            break;
+        // 下面几条只给一个人玩用(联机时两边各算各的,改一边会对不上)
+        case 'a': start_solo(); break;
+        case 'b': if (s_page == PG_RUN && !s_link) { s_run.carry[0].en = MBT_EN_MAX; s_run.bt.h[0].en = MBT_EN_MAX; } break;
         case 'c':
-            s_decor = !s_decor;
-            morph_mv_set_decor(s_decor);
+            if (s_page == PG_RUN && !s_link && s_run.phase == RUN_BATTLE)
+                for (int i = 0; i < MBT_MAXF; i++) if (s_run.bt.f[i].used) s_run.bt.f[i].hp = 0;
             break;
         case 'd':
-            s_crowd = !s_crowd;
-            morph_mv_set_crowd(s_crowd);
+            if (s_page == PG_RUN && !s_link && s_run.phase == RUN_MAP && !s_run.walking) { s_run.r = MR_ROWS - 2; s_run.i = 0; }
             break;
         default: return KIT_ADMIN_NOT_MINE;
     }
     return KIT_ADMIN_DONE;
 }
 
-// 调试通道状态行(格式冻结,模拟器脚本和真卡脚本在读;全是整数,空格分开):
-// MO <页> <阶段> <一个人> <主动方> <x> <y> <状态> <朝向> <对方 x> <对方 y> <对方状态> <关卡时钟> <来回>
-//    <帧 dt 平均> <帧 dt 最大> <对象数> <摄像机步长> <交出去> <收到> <被拒> <刷屏平均微秒> <刷屏最长微秒>
-//    <刷屏次数> <刷屏合计微秒> <'B' 等待平均毫秒> <'B' 等待最长毫秒>
-// 页 = page_t,阶段 = morph_phase_t,状态 = morph_body_st_t,朝向 1 / -1;坐标是像素(脚底中点,向下取整)。
-// dt、刷屏、'B' 等待都是上一段 2 秒的;刷屏两项是 Task 4 核对后加的:frame(dt) 不含 LVGL 重画(见 on_refr 上面)。
-// 最后四项是终审后加的(Ruling 14 / 16):刷屏次数 + 合计 / 2 秒 = 刷屏占比;'B' 等待 = 有事到交给 kit_link
-// (morph_play_t 的 b_wait_*,没事补发的不算;刚连上那一段前面排着 'H' 'G' 'A'、来回还没量到,会等到 1 秒上下,
-// 看稳态从下一段起)。对象数含 'd' 放的 6 个替身。
+// 调试通道状态行(全是整数,空格分开;外壳的缓冲 120 字节,别再加长):
+// MO <页> <冒险阶段> <几个人> <第几排> <在走> <血> <能量> <变身> <人状态> <人 x> <活着的怪> <boss 血> <结果> <特写>
+//    <对象数> <帧 dt 平均> <帧 dt 最大> <刷屏最长微秒> <刷屏次数> <联机阶段> <我是谁> <来回> <延迟步> <对不上> <步数/100>
+// 页 = page_t,冒险阶段 = mr_phase_t,人状态 = mbt_hero_st_t(联机时是自己那个人);dt、刷屏是上一段 2 秒的;
+// 联机阶段 = mn_phase_t(一个人玩时 0),我是谁 0 库巴 / 1 爸爸。
 static size_t morph_status(char *buf, size_t len) {
-    const morph_play_t *p = &s_play;
-    int n = snprintf(buf, len,
-                     "MO %d %u %u %u %ld %ld %u %d %ld %ld %u %lu %u %u %u %u %u %lu %lu %lu %lu %lu %lu %lu %lu %lu\n",
-                     (int)s_page, (unsigned)p->phase, (unsigned)p->solo, (unsigned)p->initiator, px(p->me.x),
-                     px(p->me.y), (unsigned)p->me.st, (int)p->me.dir, px(p->peer.x), px(p->peer.y),
-                     (unsigned)p->peer.st, (unsigned long)p->clock, (unsigned)p->rtt, (unsigned)s_dt_avg,
-                     (unsigned)s_dt_max, (unsigned)morph_mv_obj_count(), (unsigned)s_cam, (unsigned long)p->tx,
-                     (unsigned long)p->rx, (unsigned long)p->refused, (unsigned long)s_draw_avg_us,
-                     (unsigned long)s_draw_max_us, (unsigned long)s_draw_n_win, (unsigned long)s_draw_sum_us,
-                     (unsigned long)s_bw_avg, (unsigned long)s_bw_max);
+    const morph_run_t *r = run();
+    const morph_battle_t *b = &r->bt;
+    int me = s_link && s_net.me > 0 ? 1 : 0;
+    bool fight = s_page == PG_RUN && r->phase == RUN_BATTLE;
+    int boss_hp = 0;
+    for (int i = 0; fight && i < MBT_MAXF; i++)
+        if (b->f[i].used && (morph_foes[b->f[i].type].boss || morph_foes[b->f[i].type].elite)) boss_hp = b->f[i].hp;
+    int n = snprintf(buf, len, "MO %d %u %u %u %u %d %d %u %u %d %d %d %d %d %u %u %u %lu %lu %u %d %u %u %u %lu\n",
+                     (int)s_page, (unsigned)r->phase, (unsigned)r->nh, (unsigned)r->r, (unsigned)r->walking,
+                     fight ? b->h[me].hp : r->carry[me].hp, fight ? b->h[me].en : r->carry[me].en,
+                     (unsigned)(fight ? b->h[me].form : r->carry[me].form), (unsigned)(fight ? b->h[me].st : 0),
+                     fight ? (int)b->h[me].x : 0, fight ? morph_mbt_alive(b) : 0, boss_hp, fight ? b->result : 0,
+                     fight && b->cine_on ? 1 + b->cine.kind : 0, (unsigned)morph_gfx_obj_count(), (unsigned)s_dt_avg,
+                     (unsigned)s_dt_max, (unsigned long)s_draw_max_us, (unsigned long)s_draw_n_win,
+                     (unsigned)(s_link ? s_net.phase : 0), s_link ? s_net.me : -1, (unsigned)s_net.rtt,
+                     (unsigned)s_net.delay, (unsigned)s_net.desync, (unsigned long)(s_net.step / 100));
     return n < 0 ? 0 : ((size_t)n < len ? (size_t)n : len - 1);
 }
 
@@ -337,7 +360,7 @@ static const kit_menu_card_t MORPH_CARD = {
 
 const kit_app_t morph_app = {
     .id = "morph",
-    .sprite_budget = 0,  // 图都是游戏块里的常量图(morph_art.h),不用精灵会话
+    .sprite_budget = 0,   // 图都是游戏块里的常量图(morph_art.h),不用精灵会话
     .enter = morph_enter,
     .input = morph_input,
     .frame = morph_frame,

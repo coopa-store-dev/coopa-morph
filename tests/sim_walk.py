@@ -6,7 +6,8 @@
   3. 按住 ▼ 700 ms:方向只变一次(按下一次、长按被吞);
   4. 两个键叠着按:按住 ▲ 再按 ▼、先松开 ▲、再松开 ▼:方向最多变一次、最多一次跳;
   5. 一秒连按 ▲ 5 下(间隔 200 ms):一次跳 + 4 次扑腾都算到(再连按,多出来的不起作用);
-  6. 走到关卡头上的墙 → MB_WALL;BOS2 四次 → cam 依次 2 4 8 1;BOS3 → 截图里没有云(再 BOS3 云回来)。
+  6. 走到关卡头上的墙 → MB_WALL;BOS2 四次 → cam 依次 2 4 8 1;BOS3 → 截图里没有云(再 BOS3 云回来);
+     BOS4 → 对象数多 6 个(怪的替身),再 BOS4 回去。
   tests/sim_walk.py --shell 外壳仓库目录(或环境变量 COOPA_SHELL) [--font-dir DIR] [--keep] [--shots DIR]"""
 import argparse
 import os
@@ -22,7 +23,7 @@ MP_WAIT, MP_PLAY, MP_PAUSED = range(3)
 MB_WALK, MB_AIR, MB_EDGE, MB_WALL = range(4)
 ML_TILE = 32
 KEYS = ("page phase solo init x y st dir peer_x peer_y peer_st clock rtt avg_ms max_ms objs cam tx rx refused "
-        "draw_us draw_max_us").split()
+        "draw_us draw_max_us draw_n draw_sum_us b_wait_avg_ms b_wait_max_ms").split()
 
 
 class Fail(Exception):
@@ -290,6 +291,17 @@ def main():
         check(d_off > 200, f"BOS3 以后画面应该少了云和草丛,不同的像素只有 {d_off}")
         check(d_back == 0, f"再 BOS3 云和草丛应该回来,仍有 {d_back} 个像素不同")
         print(f"   BOS3:云和草丛没了(差 {d_off} 个像素);再 BOS3 回来(差 {d_back})")
+        objs = [stat()["objs"]]
+        for _ in range(2):
+            c.ok("serial BOS4")
+            c.ok("wait 100")
+            if len(objs) == 1:
+                shot("6-crowd")
+            objs.append(stat()["objs"])
+        check(objs[1] == objs[0] + 6 and objs[2] == objs[0], f"BOS4 对象数应 +6 再回去,读到 {objs}")
+        s = stat()
+        print(f"   BOS4:对象数 {objs[0]} → {objs[1]} → {objs[2]};上一段 2 秒刷屏 {s['draw_n']} 次、合计 "
+              f"{s['draw_sum_us']} 微秒、最长 {s['draw_max_us']} 微秒")
         s = stat()
         check(s["refused"] == 0 and s["max_ms"] <= 40, "refused != 0 或 dt 最大 > 40 ms", s)
         print("sim_walk: ok")

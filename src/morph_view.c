@@ -15,6 +15,7 @@
 #define NONE 0xFF
 #define FIG 16         // 人物原图 16×16,放大两倍
 #define STEP_PX 8      // 走 8 像素换一下脚
+#define MOBS 6         // 怪的替身几个
 
 typedef struct {
     int16_t x, y, w, h;  // 世界坐标(像素)
@@ -36,6 +37,8 @@ static bool s_fresh;              // 刚建好:第一帧摄像机直接对上
 static uint16_t s_objs;
 static uint8_t s_step = 1;
 static bool s_decor = true;
+static lv_obj_t *s_mob[MOBS];
+static bool s_crowd;
 
 static int fdiv(int32_t a, int32_t b) { return (int)(a >= 0 ? a / b : -((-a + b - 1) / b)); }
 
@@ -199,6 +202,23 @@ static void place(int i, const morph_body_t *b, bool on) {
     pos(o, fdiv(b->x, MB_SUB) - FIG / 2, fdiv(b->y, MB_SUB) - FIG * 3 / 2);
 }
 
+// 怪的替身:开着就在摄像机这一屏里摆 MOBS 个人物图(库巴 / 爸爸轮流、各种姿势、朝左),画在两个人后面;
+// 放好就不动,跟着世界容器卷;关了就删
+static void crowd(void) {
+    if (s_crowd == (s_mob[0] != NULL)) return;
+    for (int i = 0; i < MOBS; i++) {
+        if (!s_crowd) {
+            lv_obj_delete(s_mob[i]);
+            s_mob[i] = NULL;
+            continue;
+        }
+        lv_obj_t *o = s_mob[i] = figure((uint8_t)(i % 2));
+        lv_image_set_src(o, morph_art_pose((uint8_t)(i % 2), (uint8_t)(i % MA_POSES), true));
+        lv_obj_move_to_index(o, lv_obj_get_index(s_fig[PEER]));
+        pos(o, s_cam_px + 16 + i * 38, 56 + i % 2 * 64);  // 画出来 32×32 的左上角是 (s_cam_px + 8 + i * 38, 48 / 112)
+    }
+}
+
 void morph_mv_create(lv_obj_t *parent, const morph_level_t *L, uint8_t me_ch, uint8_t peer_ch) {
     morph_mv_destroy();
     s_L = L;
@@ -227,6 +247,7 @@ void morph_mv_update(const morph_play_t *p, uint32_t dt_ms) {
     if (!s_root) return;
     camera(&p->me, dt_ms);
     s_fresh = false;
+    crowd();
     place(ME, &p->me, true);
     place(PEER, &p->peer, !p->solo && p->peer_ok);
     bool lost = !p->solo && p->phase == MP_PAUSED;
@@ -239,6 +260,7 @@ void morph_mv_destroy(void) {
     if (s_root) lv_obj_delete(s_root);
     s_root = s_state = s_world = s_wait = s_parent = NULL;
     s_fig[0] = s_fig[1] = NULL;
+    memset(s_mob, 0, sizeof s_mob);  // 跟着 s_root 删了
     memset(s_obj, 0, sizeof s_obj);
     memset(s_used, 0, sizeof s_used);
     s_L = NULL;
@@ -252,5 +274,7 @@ void morph_mv_set_decor(bool on) {
     s_decor = on;
     s_c0 = s_c1 = -1;  // 下一帧重摆
 }
+
+void morph_mv_set_crowd(bool on) { s_crowd = on; }  // 下一次 morph_mv_update 摆 / 删
 
 uint16_t morph_mv_obj_count(void) { return s_objs; }

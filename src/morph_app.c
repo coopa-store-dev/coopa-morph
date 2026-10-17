@@ -4,8 +4,9 @@
 // 按键:首页 ▲▼ 选、● 确定;找队友页 ● 回首页;试验关 ▲ 跳 / 扑腾、▼ 掉头(morph_keys.h),● 长按回首页
 // (计划 1 临时),别的不算。
 // 一局和联机在 morph_play.c;画面在 morph_view.c。计划 1 没有存档。
-// 调试通道(devlink BOS1/2/3 → admin 'a' 'b' 'c',只在前台时认):'a' 一个人进试验关、'b' 摄像机步长 1 → 2 → 4 → 8 → 1、
-// 'c' 云和草丛开 / 关。
+// 调试通道(devlink BOS1/2/3/4 → admin 'a' 'b' 'c' 'd',只在前台时认):'a' 一个人进试验关、'b' 摄像机步长
+// 1 → 2 → 4 → 8 → 1、'c' 云和草丛开 / 关、'd' 6 个怪的替身(放大两倍的人物图,摆在摄像机这一屏、跟着世界卷)放 / 收
+// (Ruling 15,真卡实验量 6 只怪时的刷屏;状态行的对象数跟着多 6 个)。
 #include <stdio.h>
 #include <string.h>
 
@@ -38,6 +39,7 @@ static uint8_t s_view_me;      // 按哪个人建的
 static char s_note[160];       // 找队友页上次画的内容(没变就不重画)
 static uint8_t s_cam = 1;      // 摄像机步长(实验)
 static bool s_decor = true;    // 云和草丛(实验)
+static bool s_crowd;           // 怪的替身(实验)
 // 状态行的统计:这一段(STAT_MS)正在攒的、上一段的结果
 static uint32_t s_win_ms, s_win_n, s_win_sum, s_win_max;
 static uint16_t s_dt_avg, s_dt_max;
@@ -45,7 +47,8 @@ static bool s_hooked;          // 刷屏回调挂着
 static int64_t s_refr_at;
 static bool s_refr_drew;
 static uint32_t s_draw_n, s_draw_sum, s_draw_max;  // 微秒
-static uint32_t s_draw_avg_us, s_draw_max_us;
+static uint32_t s_draw_avg_us, s_draw_max_us, s_draw_n_win, s_draw_sum_us;
+static uint32_t s_bw_avg, s_bw_max;  // 'B' 从该发到交出去(毫秒,morph_play_t 的 b_wait_*)
 
 static bool link_send(void *ctx, const void *m, size_t n) {
     (void)ctx;
@@ -97,8 +100,13 @@ static void stats(uint32_t dt) {
     s_dt_max = (uint16_t)s_win_max;
     s_draw_avg_us = s_draw_n ? s_draw_sum / s_draw_n : 0;
     s_draw_max_us = s_draw_max;
+    s_draw_n_win = s_draw_n;
+    s_draw_sum_us = s_draw_sum;
+    s_bw_avg = s_play.b_wait_n ? s_play.b_wait_sum / s_play.b_wait_n : 0;
+    s_bw_max = s_play.b_wait_max;
     s_win_ms = s_win_n = s_win_sum = s_win_max = 0;
     s_draw_n = s_draw_sum = s_draw_max = 0;
+    s_play.b_wait_n = s_play.b_wait_sum = s_play.b_wait_max = 0;  // morph_play 只管累加,一段一清
 }
 
 // ---- 画面 ----
@@ -289,6 +297,10 @@ static kit_admin_t morph_admin(int cmd, bool active) {
             s_decor = !s_decor;
             morph_mv_set_decor(s_decor);
             break;
+        case 'd':
+            s_crowd = !s_crowd;
+            morph_mv_set_crowd(s_crowd);
+            break;
         default: return KIT_ADMIN_NOT_MINE;
     }
     return KIT_ADMIN_DONE;
@@ -297,17 +309,23 @@ static kit_admin_t morph_admin(int cmd, bool active) {
 // 调试通道状态行(格式冻结,模拟器脚本和真卡脚本在读;全是整数,空格分开):
 // MO <页> <阶段> <一个人> <主动方> <x> <y> <状态> <朝向> <对方 x> <对方 y> <对方状态> <关卡时钟> <来回>
 //    <帧 dt 平均> <帧 dt 最大> <对象数> <摄像机步长> <交出去> <收到> <被拒> <刷屏平均微秒> <刷屏最长微秒>
+//    <刷屏次数> <刷屏合计微秒> <'B' 等待平均毫秒> <'B' 等待最长毫秒>
 // 页 = page_t,阶段 = morph_phase_t,状态 = morph_body_st_t,朝向 1 / -1;坐标是像素(脚底中点,向下取整)。
-// dt、刷屏都是上一段 2 秒的;最后两项是 Task 4 核对后加的:frame(dt) 不含 LVGL 重画(见 on_refr 上面)。
+// dt、刷屏、'B' 等待都是上一段 2 秒的;刷屏两项是 Task 4 核对后加的:frame(dt) 不含 LVGL 重画(见 on_refr 上面)。
+// 最后四项是终审后加的(Ruling 14 / 16):刷屏次数 + 合计 / 2 秒 = 刷屏占比;'B' 等待 = 有事到交给 kit_link
+// (morph_play_t 的 b_wait_*,没事补发的不算;刚连上那一段前面排着 'H' 'G' 'A'、来回还没量到,会等到 1 秒上下,
+// 看稳态从下一段起)。对象数含 'd' 放的 6 个替身。
 static size_t morph_status(char *buf, size_t len) {
     const morph_play_t *p = &s_play;
-    int n = snprintf(buf, len, "MO %d %u %u %u %ld %ld %u %d %ld %ld %u %lu %u %u %u %u %u %lu %lu %lu %lu %lu\n",
+    int n = snprintf(buf, len,
+                     "MO %d %u %u %u %ld %ld %u %d %ld %ld %u %lu %u %u %u %u %u %lu %lu %lu %lu %lu %lu %lu %lu %lu\n",
                      (int)s_page, (unsigned)p->phase, (unsigned)p->solo, (unsigned)p->initiator, px(p->me.x),
                      px(p->me.y), (unsigned)p->me.st, (int)p->me.dir, px(p->peer.x), px(p->peer.y),
                      (unsigned)p->peer.st, (unsigned long)p->clock, (unsigned)p->rtt, (unsigned)s_dt_avg,
                      (unsigned)s_dt_max, (unsigned)morph_mv_obj_count(), (unsigned)s_cam, (unsigned long)p->tx,
                      (unsigned long)p->rx, (unsigned long)p->refused, (unsigned long)s_draw_avg_us,
-                     (unsigned long)s_draw_max_us);
+                     (unsigned long)s_draw_max_us, (unsigned long)s_draw_n_win, (unsigned long)s_draw_sum_us,
+                     (unsigned long)s_bw_avg, (unsigned long)s_bw_max);
     return n < 0 ? 0 : ((size_t)n < len ? (size_t)n : len - 1);
 }
 

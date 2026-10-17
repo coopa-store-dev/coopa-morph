@@ -78,11 +78,13 @@ size_t peer_take(uint8_t *buf) {
     return len;
 }
 
-// 一行:clock rtt tx rx refused 对方的 x y(像素,取整)。对方 = 卡上的人(Mac 这边照它发来的状态重建的)
+// 一行:clock rtt tx rx refused 对方的 x y、Mac 自己的人的 x y st(像素,取整;st = morph_body_st_t)。
+// 对方 = 卡上的人(Mac 这边照它发来的状态重建的);和卡上状态行的 peer_x peer_y peer_st 对着看
 int peer_status(char *buf, size_t len) {
-    return snprintf(buf, len, "clock=%lu rtt=%u tx=%lu rx=%lu refused=%lu peer_x=%d peer_y=%d", (unsigned long)s_p.clock,
-                    (unsigned)s_p.rtt, (unsigned long)s_p.tx, (unsigned long)s_p.rx, (unsigned long)s_p.refused,
-                    (int)(s_p.peer.x >> 4), (int)(s_p.peer.y >> 4));
+    return snprintf(buf, len, "clock=%lu rtt=%u tx=%lu rx=%lu refused=%lu peer_x=%d peer_y=%d me_x=%d me_y=%d me_st=%u",
+                    (unsigned long)s_p.clock, (unsigned)s_p.rtt, (unsigned long)s_p.tx, (unsigned long)s_p.rx,
+                    (unsigned long)s_p.refused, (int)(s_p.peer.x >> 4), (int)(s_p.peer.y >> 4), (int)(s_p.me.x >> 4),
+                    (int)(s_p.me.y >> 4), (unsigned)s_p.me.st);
 }
 
 // 只给测试用(link_peer.py 不用):停 / 开 Mac 这边的人乱按;取两个人的完整状态

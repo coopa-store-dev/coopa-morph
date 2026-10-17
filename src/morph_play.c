@@ -58,6 +58,12 @@ static void keep(morph_play_t *p, const uint8_t *m, size_t n) {
     p->keep_len[p->keep_n++] = (uint8_t)n;
 }
 
+// 自己的人有事,该发 'B' 了;记下第一次立起来的时刻(状态行的 b_wait 从这儿量)
+static void due(morph_play_t *p) {
+    if (!p->state_due) p->due_at = p->now;
+    p->state_due = true;
+}
+
 // 'B':自己的人现在的状态(交的时候现打包)
 static void send_state(morph_play_t *p) {
     const morph_body_t *b = &p->me;
@@ -68,6 +74,12 @@ static void send_state(morph_play_t *p) {
     put16(m + 10, (uint16_t)b->vy);
     put16(m + 12, (b->dir > 0 ? 1u : 0u) | (uint32_t)(b->st & 3u) << 1 | (uint32_t)(b->flaps & 7u) << 3);
     if (!hand(p, m, sizeof m)) return;
+    if (p->state_due) {
+        uint32_t w = p->now - p->due_at;
+        p->b_wait_n++;
+        p->b_wait_sum += w;
+        if (w > p->b_wait_max) p->b_wait_max = w;
+    }
     p->tx_seq++;
     p->state_due = false;
     p->state_at = p->now;
@@ -115,7 +127,7 @@ static void pump(morph_play_t *p) {
 static unsigned follow(morph_play_t *p, morph_body_t *b, uint32_t *at) {
     if (*at + MP_STALE_MS < p->clock) {
         *at = floor_step(p->clock);
-        if (b == &p->me) p->state_due = true;
+        if (b == &p->me) due(p);
     }
     unsigned ev = 0;
     while (*at + MB_STEP_MS <= p->clock) {
@@ -127,7 +139,7 @@ static unsigned follow(morph_play_t *p, morph_body_t *b, uint32_t *at) {
 
 // 两个人都算到 clock;自己的人有事就该发 'B'
 static void catch_up(morph_play_t *p) {
-    if (follow(p, &p->me, &p->me_at) & (MB_EV_LAND | MB_EV_STOP | MB_EV_PIT | MB_EV_GO)) p->state_due = true;
+    if (follow(p, &p->me, &p->me_at) & (MB_EV_LAND | MB_EV_STOP | MB_EV_PIT | MB_EV_GO)) due(p);
     if (p->peer_ok) follow(p, &p->peer, &p->peer_at);
 }
 
@@ -137,7 +149,7 @@ static void catch_up(morph_play_t *p) {
 static void set_clock(morph_play_t *p, uint32_t c) {
     if (c + MP_JUMP_MS < p->clock) {
         p->me_at = floor_step(c);
-        p->state_due = true;
+        due(p);
     }
     p->clock = c;
     catch_up(p);
@@ -156,7 +168,7 @@ static void on_hello(morph_play_t *p, const uint8_t *m, size_t n) {
     uint8_t g[5] = { 'G' };  // 时钟交的时候再填
     keep(p, g, sizeof g);
     p->phase = MP_PLAY;
-    p->state_due = true;
+    due(p);
 }
 
 static void on_go(morph_play_t *p, const uint8_t *m, size_t n) {
@@ -166,7 +178,7 @@ static void on_go(morph_play_t *p, const uint8_t *m, size_t n) {
     set_clock(p, c);
     p->phase = MP_PLAY;
     p->clock_ok = false;  // 'G' 晚到了一个单程:第一次 ping 回来直接对上
-    p->state_due = true;
+    due(p);
     p->ping_next = p->now;
 }
 
@@ -297,6 +309,6 @@ void morph_mp_tick(morph_play_t *p, uint32_t dt_ms) {
 void morph_mp_key(morph_play_t *p, uint8_t key) {
     if (p->phase != MP_PLAY || key > MK_JUMP) return;
     morph_mb_key(&p->me, p->L, key);
-    p->state_due = true;
+    due(p);
     pump(p);
 }

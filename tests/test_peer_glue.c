@@ -131,12 +131,14 @@ int main(void) {
            (unsigned long)D.b.refused);
     unsigned long c, tx, rx, refused;
     unsigned rtt;
-    int px, py;
-    CHECK(sscanf(st, "clock=%lu rtt=%u tx=%lu rx=%lu refused=%lu peer_x=%d peer_y=%d", &c, &rtt, &tx, &rx, &refused,
-                 &px, &py) == 7);
+    unsigned mst;
+    int px, py, mx, my;
+    CHECK(sscanf(st, "clock=%lu rtt=%u tx=%lu rx=%lu refused=%lu peer_x=%d peer_y=%d me_x=%d me_y=%d me_st=%u",
+                 &c, &rtt, &tx, &rx, &refused, &px, &py, &mx, &my, &mst) == 10);
     CHECK(refused == 0 && D.b.refused == 0);
     CHECK(tx > 20 && rx > 20);
     CHECK(px == (int)(D.b.me.x >> 4) && py == (int)(D.b.me.y >> 4));
+    CHECK(mx == (int)(me.x >> 4) && my == (int)(me.y >> 4) && mst == me.st);
     CHECK(!peer_over() && !peer_holding() && peer_press() == 0);
     puts("test_peer_glue: ok");
     return 0;

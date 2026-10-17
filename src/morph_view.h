@@ -25,4 +25,7 @@ void morph_mv_update(const morph_play_t *p, uint32_t dt_ms);
 void morph_mv_destroy(void);
 void morph_mv_set_cam_step(uint8_t px);  // 实验:摄像机一次至少挪几像素(1 / 2 / 4 / 8),默认 1;morph_mv_destroy 后也留着
 void morph_mv_set_decor(bool on);        // 实验:云和草丛开关,默认开;morph_mv_destroy 后也留着
+// 实验:6 个怪的替身(放大两倍的现成人物图,静态),开的时候摆在摄像机这一屏里、跟着世界卷;默认关;
+// morph_mv_destroy 后也留着(重建画面时摆在新的这一屏)
+void morph_mv_set_crowd(bool on);
 uint16_t morph_mv_obj_count(void);       // 现在屏幕上有几个 LVGL 对象(含屏幕;上一次 morph_mv_create / morph_mv_update 时数的,状态行用)

@@ -22,7 +22,7 @@ PG_TITLE, PG_LINK, PG_GAME = range(3)
 MP_WAIT, MP_PLAY, MP_PAUSED = range(3)
 MB_WALK, MB_AIR, MB_EDGE, MB_WALL = range(4)
 KEYS = ("page phase solo init x y st dir peer_x peer_y peer_st clock rtt avg_ms max_ms objs cam tx rx refused "
-        "draw_us draw_max_us").split()
+        "draw_us draw_max_us draw_n draw_sum_us b_wait_avg_ms b_wait_max_ms").split()
 
 
 class Fail(Exception):
@@ -163,6 +163,7 @@ def main():
         t_next_cmp = t_start + 5
         nxt = {c: t_start + rng.uniform(0.2, 1.5) for c in cards}
         compares, presses, paused_done = 0, 0, False
+        b_wait = {c: 0 for c in cards}  # 乱按时状态行 b_wait_max_ms 最大读到多少
         t_pause = t_start + a.secs / 2
         while time.time() - t_start < a.secs:
             now = time.time()
@@ -220,6 +221,7 @@ def main():
                     nxt[c] = time.time() + rng.uniform(0.2, 1.5)
             for c in cards:
                 s = c.stat()
+                b_wait[c] = max(b_wait[c], s["b_wait_max_ms"])
                 if s["refused"]:
                     fail(f"{c.name} 的 refused = {s['refused']}")
             time.sleep(0.02)
@@ -231,7 +233,8 @@ def main():
         if not paused_done:
             fail("没测到断线(--secs 太短?)")
         print(f"{a.secs} 秒乱按了 {presses} 下,对位 {compares} 次都对;tx a={x['tx']} b={y['tx']} rx a={x['rx']} "
-              f"b={y['rx']},refused 0,dt 最大 a={x['max_ms']} b={y['max_ms']} ms")
+              f"b={y['rx']},refused 0,dt 最大 a={x['max_ms']} b={y['max_ms']} ms;'B' 从该发到交出去最长 "
+              f"a={b_wait[ca]} b={b_wait[cb]} ms")
         print("sim_duo: ok")
         return 0
     except Fail:

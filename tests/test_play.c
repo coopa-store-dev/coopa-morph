@@ -225,6 +225,34 @@ static void t_events(void) {
     CHECK(t < 500);   // 一个来回多一点就到了对面
 }
 
+// 'B' 从该发到交出去等了多久(状态行的 b_wait):140 ms 单程的管道、真人节奏乱按 30 秒。'B' 要等链路估计空下来,
+// 估计一片要 busy 毫秒;前面可能还排着一片 'A' / 'Q',所以最多等两片多一点(10 ms 一帧的零头)。
+// 刚连上那 3 秒不算('H' 'G' 排在前面,还没量到来回),和状态行一样到点清零重攒
+static void t_bwait(void) {
+    test_seed(29);
+    begin(140, 40);
+    humans_start();
+    uint16_t busy = 0;
+    for (int t = 0; t < 33000; t += 10) {
+        humans();
+        duo_step();
+        if (t == 3000)
+            for (int s = 0; s < 2; s++) side(s)->b_wait_n = side(s)->b_wait_sum = side(s)->b_wait_max = 0;
+        if (t < 3000) continue;
+        if (D.a.busy > busy) busy = D.a.busy;
+        if (D.b.busy > busy) busy = D.b.busy;
+    }
+    for (int s = 0; s < 2; s++) {
+        const morph_play_t *p = side(s);
+        printf("  t_bwait %c: %u 'B' waited avg %u ms max %u ms (busy max %u ms)\n", s ? 'b' : 'a',
+               (unsigned)p->b_wait_n, (unsigned)(p->b_wait_n ? p->b_wait_sum / p->b_wait_n : 0),
+               (unsigned)p->b_wait_max, (unsigned)busy);
+        CHECK(p->b_wait_n > 20);
+        CHECK(p->b_wait_max > 0);
+        CHECK(p->b_wait_max <= 2u * busy + 20u);
+    }
+}
+
 static void t_solo(void) {
     morph_play_t p;
     morph_mp_init(&p, NULL, NULL, L);
@@ -377,7 +405,8 @@ static void t_garbage(void) {
 }
 
 int main(void) {
-    t_hello(); t_clock(); t_follow(); t_jump(); t_events(); t_solo(); t_drop(); t_restart(); t_stale(); t_future(); t_garbage();
+    t_hello(); t_clock(); t_follow(); t_jump(); t_events(); t_bwait(); t_solo(); t_drop(); t_restart(); t_stale();
+    t_future(); t_garbage();
     if (fails) { printf("test_play: %d FAIL\n", fails); return 1; }
     printf("test_play: ok\n");
     return 0;

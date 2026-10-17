@@ -57,6 +57,9 @@ typedef struct {
     uint8_t tx_seq, rx_seq;
     uint16_t rtt;               // 平滑来回(毫秒),0 = 还没量
     uint32_t tx, rx, refused;   // 统计:交出去几条、收到几条、send 被拒几次(测试和状态行用)
+    // 统计:有事该发的 'B' 从 state_due 立起来到交给 send 等了多久(毫秒,按 now):条数、合计、最长。
+    // 一直累加;状态行每 2 秒取一次就清零(没事 MP_SYNC_MS 补发的那种不算)
+    uint32_t b_wait_n, b_wait_sum, b_wait_max;
 
     uint8_t proto;              // 自己说的协议版本(morph_mp_init 设成 MP_PROTO;测试改它模拟版本不一样的卡)
     bool hello;                 // 这次连接对方的 'H' 版本对上了
@@ -65,6 +68,7 @@ typedef struct {
 
     uint8_t keep[2][MP_MSG_MAX], keep_len[2], keep_n;  // 'H' 'G':按顺序交,被拒就留着
     bool state_due;             // 自己的人有事,'B' 等链路空了就发
+    uint32_t due_at;            // state_due 这次立起来的时刻(now)
     uint32_t state_at;          // 上一条 'B' 交出去的时刻(now)
     uint32_t link_free;         // 估计链路什么时候空下来(now)
     uint32_t hand_at;           // 最近一次交给 send 的时刻(now)

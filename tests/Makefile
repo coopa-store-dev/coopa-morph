@@ -30,8 +30,10 @@ $(OUT)/test_keys: test_keys.c ../src/morph_keys.c $(HDRS) | $(OUT)
 $(OUT)/test_art: test_art.c ../src/morph_art.c $(HDRS) stub/lvgl.h | $(OUT)
 	$(CC) $(CFLAGS) -Istub $(filter %.c,$^) -o $@
 
-# Mac 冒充队友的 C 接口:peer_glue.c 自己包含了其余的规则源文件(link_peer.py 只编 morph_play.c 和它)
-$(OUT)/test_peer_glue: test_peer_glue.c peer_glue.c duo.c ../src/morph_play.c $(HDRS) | $(OUT)
-	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@
+# Mac 冒充队友的 C 接口:peer_glue.c 自己包含了其余的规则源文件(link_peer.py 只编 morph_play.c 和它),
+# 所以那三个只当依赖、不进编译行
+GLUE_INC := ../src/morph_body.c ../src/morph_level.c ../src/morph_levels.c
+$(OUT)/test_peer_glue: test_peer_glue.c peer_glue.c duo.c ../src/morph_play.c $(GLUE_INC) $(HDRS) | $(OUT)
+	$(CC) $(CFLAGS) $(filter-out $(GLUE_INC),$(filter %.c,$^)) -o $@
 
 .PHONY: all

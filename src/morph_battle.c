@@ -18,17 +18,17 @@
 #define NO ET_COUNT
 const mbt_foe_def_t morph_foes[ET_COUNT] = {
     //                 名字       血 晕 够得着 伤害 速度 宽 高 变身        甲 精英   Boss   招        标记                    帮手
-    [ET_CLOCK] = { "clock", 44, 36, 24, 11, 34, 16, 20, -1, 0, false, false, FA_SLAP, 0, { NO, NO } },
-    [ET_ICE] = { "ice", 40, 32, 24, 11, 30, 14, 22, FORM_ICE, 0, false, false, FA_SLAP, 0, { NO, NO } },
-    [ET_VOLT] = { "volt", 38, 32, 24, 12, 40, 18, 12, FORM_VOLT, 0, false, false, FA_SLAP, 0, { NO, NO } },
+    [ET_CLOCK] = { "clock", 44, 24, 24, 11, 34, 16, 20, -1, 0, false, false, FA_SLAP, 0, { NO, NO } },
+    [ET_ICE] = { "ice", 40, 20, 24, 11, 30, 14, 22, FORM_ICE, 0, false, false, FA_SLAP, 0, { NO, NO } },
+    [ET_VOLT] = { "volt", 38, 20, 24, 12, 40, 18, 12, FORM_VOLT, 0, false, false, FA_SLAP, 0, { NO, NO } },
     [ET_BIGCLOCK] = { "bigclock", 170, 70, 30, 17, 28, 26, 30, -1, 1, true, false, FA_SLAP, 0, { NO, NO } },
     [ET_BEAR] = { "bear", 520, 140, 46, 22, 26, 40, 46, -1, 3, false, true, FA_SLAP, 0, { ET_ICE, ET_VOLT } },
-    [ET_SNOW] = { "snow", 36, 30, 130, 8, 30, 14, 18, -1, 0, false, false, FA_SHOOT, FD_RANGED, { NO, NO } },
-    [ET_FROG] = { "frog", 42, 32, 90, 12, 36, 16, 14, FORM_SPRING, 0, false, false, FA_LEAP, 0, { NO, NO } },
+    [ET_SNOW] = { "snow", 36, 20, 130, 8, 30, 14, 18, -1, 0, false, false, FA_SHOOT, FD_RANGED, { NO, NO } },
+    [ET_FROG] = { "frog", 42, 20, 90, 12, 36, 16, 14, FORM_SPRING, 0, false, false, FA_LEAP, 0, { NO, NO } },
     [ET_SNOWMAN] = { "snowman", 190, 80, 140, 13, 24, 26, 30, -1, 2, true, false, FA_SHOOT, FD_RANGED, { NO, NO } },
     [ET_ICEKING] = { "iceking", 600, 150, 46, 20, 24, 40, 46, -1, 0, false, true, FA_SLAP, FD_GUARD, { ET_SNOW, ET_FROG } },
-    [ET_MAGNET] = { "magnet", 46, 34, 110, 11, 30, 16, 16, FORM_MAGNET, 0, false, false, FA_PULL, 0, { NO, NO } },
-    [ET_ROCKET] = { "rocket", 40, 30, 140, 9, 26, 16, 16, FORM_ROCKET, 0, false, false, FA_SHOOT, FD_RANGED, { NO, NO } },
+    [ET_MAGNET] = { "magnet", 46, 22, 110, 11, 30, 16, 16, FORM_MAGNET, 0, false, false, FA_PULL, 0, { NO, NO } },
+    [ET_ROCKET] = { "rocket", 40, 20, 140, 9, 26, 16, 16, FORM_ROCKET, 0, false, false, FA_SHOOT, FD_RANGED, { NO, NO } },
     [ET_BIGVOLT] = { "bigvolt", 200, 80, 34, 16, 30, 26, 20, -1, 2, true, false, FA_RING, 0, { NO, NO } },
     [ET_DYNAMO] = { "dynamo", 520, 150, 46, 22, 22, 40, 48, -1, 0, false, true, FA_SLAP, FD_COILS, { ET_VOLT, ET_MAGNET } },
     [ET_COIL] = { "coil", 60, 999, 0, 0, 0, 16, 26, -1, 0, false, false, FA_NONE, FD_OBJECT, { NO, NO } },
@@ -216,9 +216,11 @@ static void hit_from(morph_battle_t *b, int p, int fi, float dmg, int stun, unsi
     }
     int dd = (int)lroundf(dmg * m);
     if (dd < 1) dd = 1;
+    // 晕着的、吞了能变身的小怪:拳脚打不死(留 1 血等人来吞);大招、超必杀照样打死
+    if (small(f) && d->form >= 0 && f->stun_t > 0 && !(fl & HIT_FLAT) && dd >= f->hp) dd = f->hp - 1;
     f->hp = (int16_t)(f->hp - dd);
     f->flash = 120;
-    ev(b, BE_HIT, (uint8_t)fi, (uint8_t)(a | (m >= 2 ? 2 : 0)), dd, f->x, f->y - d->h);
+    if (dd > 0) ev(b, BE_HIT, (uint8_t)fi, (uint8_t)(a | (m >= 2 ? 2 : 0)), dd, f->x, f->y - d->h);
     b->combo++; b->combo_t = 1600;
     if (p >= 0) gain(&b->h[p], 4);
     if (!is_coil(f) && f->stun_t <= 0 && f->freeze_t <= 0) {

@@ -140,6 +140,18 @@ static void t_eat_revive(void) {
     assert(B.h[1].hp == 35);
 }
 
+// 像玩家那样吞:连点 ● 把冰淇淋怪打晕(晕着拳脚打不死)、按住 ●(先来一次点、再来长按)吞掉变身
+static void t_eat_like_player(void) {
+    one(ET_ICE, 1, 0, 0);
+    B.h[0].x = B.f[0].x - 24;
+    for (int i = 0; i < 12 && B.h[0].form == FORM_NORMAL; i++) {
+        morph_mbt_input(&B, 0, MBT_OK, false); tick(300);
+        morph_mbt_input(&B, 0, MBT_OK, false); tick(500);
+        morph_mbt_input(&B, 0, MBT_OK, true); tick(1300);
+    }
+    assert(B.h[0].form == FORM_ICE);
+}
+
 // 冰淇淋大王:正面挨打只掉一点,背后打得多;蓄力斩打正面 → 冰盾碎
 static void t_guard(void) {
     one(ET_ICEKING, 2, 0, 0);
@@ -250,6 +262,7 @@ static void t_hub(void) {
 int main(void) {
     t_skill_super_combo();
     t_eat_revive();
+    t_eat_like_player();
     t_guard();
     t_coils();
     t_trap();

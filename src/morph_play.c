@@ -76,6 +76,7 @@ static void send_state(morph_play_t *p) {
 static void pump(morph_play_t *p) {
     if (!p->up || p->solo) return;
     while (p->keep_n) {
+        if (p->keep[0][0] == 'G') put32(p->keep[0] + 1, p->clock);  // 交的时候的时钟
         if (!hand(p, p->keep[0], p->keep_len[0])) return;
         p->keep_n--;
         memcpy(p->keep[0], p->keep[1], sizeof p->keep[0]);
@@ -109,9 +110,13 @@ static void pump(morph_play_t *p) {
 
 // ---- 关卡时钟和人 ----
 
-// 把人从 *at 一步一步算到 clock。旧得太多(clock 跳过、乱消息)就不补算,原样摆到现在。返回 MB_EV_* 的组合
+// 把人从 *at 一步一步算到 clock。旧得太多(clock 跳过、乱消息)就不补算,原样摆到现在;是自己的人就重发一条
+// (对方手里那条的时刻对不上了)。返回 MB_EV_* 的组合
 static unsigned follow(morph_play_t *p, morph_body_t *b, uint32_t *at) {
-    if (*at + MP_STALE_MS < p->clock) *at = floor_step(p->clock);
+    if (*at + MP_STALE_MS < p->clock) {
+        *at = floor_step(p->clock);
+        if (b == &p->me) p->state_due = true;
+    }
     unsigned ev = 0;
     while (*at + MB_STEP_MS <= p->clock) {
         ev |= mb_step(b, p->L);
@@ -120,11 +125,22 @@ static unsigned follow(morph_play_t *p, morph_body_t *b, uint32_t *at) {
     return ev;
 }
 
-// 被连方改自己的时钟。差超过 MP_JUMP_MS 是直接跳:自己的人就是「现在」的,不补算跳过的那段、也不停着等
+// 两个人都算到 clock;自己的人有事就该发 'B'
+static void catch_up(morph_play_t *p) {
+    if (follow(p, &p->me, &p->me_at) & (MB_EV_LAND | MB_EV_STOP | MB_EV_PIT | MB_EV_GO)) p->state_due = true;
+    if (p->peer_ok) follow(p, &p->peer, &p->peer_at);
+}
+
+// 被连方改自己的时钟,两个人马上算到新的 clock。往前跳:自己的人照常一步一步补算(和已经发出去的 'B' 对得上;
+// 跳得太远由 follow 原样摆到现在并重发)。往回跳超过 MP_JUMP_MS(主动方重启过):不停着等 clock 追上,
+// 自己的人就算「现在」的,时刻变了,重发一条
 static void set_clock(morph_play_t *p, uint32_t c) {
-    uint32_t d = c > p->clock ? c - p->clock : p->clock - c;
-    if (d > MP_JUMP_MS) p->me_at = floor_step(c);
+    if (c + MP_JUMP_MS < p->clock) {
+        p->me_at = floor_step(c);
+        p->state_due = true;
+    }
     p->clock = c;
+    catch_up(p);
 }
 
 // ---- 收 ----
@@ -137,8 +153,7 @@ static void on_hello(morph_play_t *p, const uint8_t *m, size_t n) {
     }
     p->hello = true;
     if (!p->initiator) return;  // 被连方等 'G'
-    uint8_t g[5] = { 'G' };
-    put32(g + 1, p->clock);
+    uint8_t g[5] = { 'G' };  // 时钟交的时候再填
     keep(p, g, sizeof g);
     p->phase = MP_PLAY;
     p->state_due = true;
@@ -186,7 +201,7 @@ static void on_ack(morph_play_t *p, const uint8_t *m, size_t n) {
     if (!p->clock_ok || diff > MP_JUMP_MS || diff < -MP_JUMP_MS)
         set_clock(p, est);
     else
-        p->clock += (uint32_t)(diff > MP_NUDGE_MS ? MP_NUDGE_MS : diff < -MP_NUDGE_MS ? -MP_NUDGE_MS : diff);
+        set_clock(p, p->clock + (uint32_t)(diff > MP_NUDGE_MS ? MP_NUDGE_MS : diff < -MP_NUDGE_MS ? -MP_NUDGE_MS : diff));
     p->clock_ok = true;
 }
 
@@ -274,8 +289,7 @@ void mp_tick(morph_play_t *p, uint32_t dt_ms) {
     p->now += dt_ms;
     if (p->phase == MP_PLAY) {
         p->clock += dt_ms;
-        if (follow(p, &p->me, &p->me_at) & (MB_EV_LAND | MB_EV_STOP | MB_EV_PIT | MB_EV_GO)) p->state_due = true;
-        if (p->peer_ok) follow(p, &p->peer, &p->peer_at);
+        catch_up(p);
     }
     pump(p);
 }

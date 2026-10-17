@@ -51,12 +51,25 @@ static void humans(void) {
     }
 }
 
-// x 的宽松界(Ruling 1)。正好有一个在空中时不查:掉坑那一下一个已经冒出来、另一个还差一步,x 一下差一个坑宽
-static bool x_close(const morph_body_t *p, const morph_body_t *m) {
-    if ((p->st == MB_AIR) != (m->st == MB_AIR)) return true;
-    int32_t d = p->x - m->x, lim = (int32_t)(clock_diff() / 10 + 1) * MB_SUB;
+// x 的宽松界(Ruling 1):|x 差| ≤ (|两边 clock 差| / 10 + 1) 像素。两边差着这么多步,所以只有「这么多步之内
+// 有一个要掉出关卡底」的时候不查:落后的那个还在往坑里掉,领先的那个已经冒出来了,x 差一个坑宽。
+static int lag_steps(void) { return (int)(clock_diff() / 10 + 1); }
+
+static bool pit_soon(const morph_body_t *b) {
+    morph_body_t c = *b;
+    for (int i = 0; i < lag_steps(); i++)
+        if (mb_step(&c, L) & MB_EV_PIT) return true;
+    return false;
+}
+
+static bool x_ok(const morph_body_t *p, const morph_body_t *m) {
+    if (pit_soon(p) || pit_soon(m)) return true;
+    int32_t d = p->x - m->x, lim = lag_steps() * MB_SUB;
     return d <= lim && d >= -lim;
 }
+
+// 这一步超界的对数(a.peer↔b.me、b.peer↔a.me)
+static int x_bad(void) { return !x_ok(&D.a.peer, &D.b.me) + !x_ok(&D.b.peer, &D.a.me); }
 
 // 两边都停手(调用的人已经停了):先跑 1 秒,再一直跑到四个人都停在坑边或墙边(最多 15 秒),再跑 1 秒
 // 让路上的消息都到,比 6 样全等
@@ -66,7 +79,7 @@ static void settle(void) {
     for (; t < 15000; t += 10) {
         if (stopped(&D.a.me) && stopped(&D.b.me) && stopped(&D.a.peer) && stopped(&D.b.peer)) break;
         duo_step();
-        bad_x += !x_close(&D.a.peer, &D.b.me) + !x_close(&D.b.peer, &D.a.me);
+        bad_x += x_bad();
     }
     CHECK(t < 15000);
     CHECK(bad_x == 0);
@@ -156,6 +169,48 @@ static void t_follow(void) {
     CHECK(D.ab.msgs['B'] > 60 && D.ba.msgs['B'] > 60);
     settle();
     CHECK(D.a.refused == 0 && D.b.refused == 0);
+}
+
+// 刚连上 / 连回来的时候(被连方第一次 ping 回来时钟往前跳 200 多 ms):不按键的这段里每一步都在 x 宽松界之内。
+// 按着键的时候查不了这条界:对方的键在路上那一个单程里两边本来就差着。所以按一阵、断开、连回来、停手,
+// 从这次连接收到第一条 'B' 起查 8 秒。
+static int jump_bad;
+static int32_t jump_max_dx;   // 查的那些步里 |x 差| 最大多少(1/16 像素)
+static uint32_t jump_max_cd;  // 两边 clock 最大差
+
+static void connect_window(void) {
+    int t = 0;
+    while (t < 8000 && (!D.a.rx_seq || !D.b.rx_seq)) { duo_step(); t += 10; }
+    CHECK(D.a.rx_seq && D.b.rx_seq);
+    for (; t < 8000; t += 10) {
+        duo_step();
+        jump_bad += x_bad();
+        if (clock_diff() > jump_max_cd) jump_max_cd = clock_diff();
+        if (!pit_soon(&D.a.peer) && !pit_soon(&D.b.me) && abs(D.a.peer.x - D.b.me.x) > jump_max_dx)
+            jump_max_dx = abs(D.a.peer.x - D.b.me.x);
+        if (!pit_soon(&D.b.peer) && !pit_soon(&D.a.me) && abs(D.b.peer.x - D.a.me.x) > jump_max_dx)
+            jump_max_dx = abs(D.b.peer.x - D.a.me.x);
+    }
+}
+
+static void t_jump(void) {
+    jump_bad = 0;
+    jump_max_dx = 0;
+    jump_max_cd = 0;
+    for (uint32_t seed = 100; seed < 140; seed++) {
+        test_seed(seed);
+        begin(140, 40);
+        connect_window();   // 刚连上
+        humans_start();
+        for (int t = 0; t < 6000; t += 10) { humans(); duo_step(); }
+        duo_drop();
+        run(1000);
+        duo_connect();
+        connect_window();   // 连回来
+    }
+    printf("  t_jump: 40 seeds x 2 connects: %d steps over the x bound; max |x diff| %.2f px, max clock diff %u ms\n",
+           jump_bad, jump_max_dx / (double)MB_SUB, (unsigned)jump_max_cd);
+    CHECK(jump_bad == 0);
 }
 
 // 人有事(这里是走到坑边站住)马上要发 'B',不等 2 秒的补发
@@ -322,7 +377,7 @@ static void t_garbage(void) {
 }
 
 int main(void) {
-    t_hello(); t_clock(); t_follow(); t_events(); t_solo(); t_drop(); t_restart(); t_stale(); t_future(); t_garbage();
+    t_hello(); t_clock(); t_follow(); t_jump(); t_events(); t_solo(); t_drop(); t_restart(); t_stale(); t_future(); t_garbage();
     if (fails) { printf("test_play: %d FAIL\n", fails); return 1; }
     printf("test_play: ok\n");
     return 0;

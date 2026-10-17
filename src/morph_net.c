@@ -22,9 +22,11 @@ static bool tx(morph_net_t *n, const uint8_t *m, size_t len) {
     return true;
 }
 
-void morph_mn_init(morph_net_t *n, mn_send_fn send, void *ctx, uint32_t seed) {
+void morph_mn_init(morph_net_t *n, mn_send_fn send, void *ctx, uint32_t seed, const mr_profile_t *mine) {
     memset(n, 0, sizeof(*n));
     n->send = send; n->ctx = ctx; n->seed = seed ? seed : 1;
+    n->mine = *mine;
+    morph_mr_profile_clean(&n->mine);
     n->me = n->peer_role = -1;
     n->phase = MN_IDLE;
     n->delay = MN_DELAY;
@@ -35,7 +37,7 @@ static bool playing(const morph_net_t *n) { return n->phase == MN_PLAY || n->pha
 void morph_mn_connected(morph_net_t *n, bool initiator) {
     n->up = true; n->initiator = initiator; n->peer_hello = false;
     n->free_at = 0;
-    n->hello_due = true; n->query_due = true;
+    n->hello_due = true; n->query_due = true; n->prof_due = true;
     if (n->phase == MN_IDLE) n->phase = MN_PICK;
     if (n->phase == MN_PICK && n->me >= 0) n->pick_due = true;
     if (playing(n)) n->phase = MN_PAUSED;   // 等两边对过「收到第几步」再接着算
@@ -47,7 +49,9 @@ void morph_mn_lost(morph_net_t *n) {
 }
 
 static void start_run(morph_net_t *n, uint32_t seed) {
-    morph_mr_start(&n->run, 2, seed);
+    mr_profile_t pf[2];
+    pf[n->me] = n->mine; pf[1 - n->me] = n->peer_prof;
+    morph_mr_start(&n->run, 2, seed, pf);
     n->step = 0; n->acc = 0;
     n->front = n->delay; n->peer_front = 0; n->sent_front = 0;
     n->hist_n = 0; n->pend_n = 0; n->unsent = 0; n->rx_seq = 0;
@@ -56,7 +60,7 @@ static void start_run(morph_net_t *n, uint32_t seed) {
 }
 
 static void maybe_start(morph_net_t *n) {
-    if (n->phase != MN_PICK || !n->initiator || n->me < 0 || n->peer_role != 1 - n->me) return;
+    if (n->phase != MN_PICK || !n->initiator || n->me < 0 || n->peer_role != 1 - n->me || !n->peer_prof_ok) return;
     n->start_due = true;
     start_run(n, n->seed);
 }
@@ -89,7 +93,8 @@ void morph_mn_key(morph_net_t *n, uint8_t key, bool lp) {
 uint16_t morph_mn_crc(const morph_run_t *r) {
     uint32_t h = 2166136261u;
 #define MIX(v) (h = (h ^ (uint32_t)(v)) * 16777619u)
-    MIX(r->phase); MIX(r->r); MIX(r->i); MIX(r->choice); MIX(r->walking); MIX(r->walk_t);
+    MIX(r->phase); MIX(r->r); MIX(r->i); MIX(r->choice); MIX(r->walking); MIX(r->walk_t); MIX(r->chapter);
+    for (int p = 0; p < 2; p++) { MIX(r->hub_sel[p]); MIX(r->ready[p]); MIX(r->prof[p].parts); MIX(r->prof[p].unlocked); MIX(r->prof[p].lv[0] | r->prof[p].lv[1] << 8 | r->prof[p].lv[2] << 16 | (uint32_t)r->prof[p].lv[3] << 24); }
     for (int p = 0; p < 2; p++) { MIX(r->carry[p].hp); MIX(r->carry[p].en); MIX(r->carry[p].form); }
     if (r->phase == RUN_BATTLE) {
         const morph_battle_t *b = &r->bt;
@@ -119,6 +124,15 @@ void morph_mn_on_msg(morph_net_t *n, const uint8_t *m, size_t len) {
             if (len < 2 || m[1] != MN_PROTO) { n->phase = MN_BAD; return; }
             n->peer_hello = true;
             break;
+        case 'U':
+            if (len < 9) return;
+            n->peer_prof.unlocked = m[1]; n->peer_prof.cleared = m[2];
+            memcpy(n->peer_prof.lv, m + 3, UPG_COUNT);
+            n->peer_prof.parts = (uint16_t)(m[7] | m[8] << 8);
+            morph_mr_profile_clean(&n->peer_prof);
+            n->peer_prof_ok = true;
+            maybe_start(n);
+            break;
         case 'R':
             if (len < 2 || m[1] > 1 || n->phase != MN_PICK) return;
             n->peer_role = (int8_t)m[1];
@@ -129,7 +143,7 @@ void morph_mn_on_msg(morph_net_t *n, const uint8_t *m, size_t len) {
             maybe_start(n);
             break;
         case 'S':
-            if (len < 6 || n->initiator || m[5] > 1) return;
+            if (len < 6 || n->initiator || m[5] > 1 || !n->peer_prof_ok) return;
             if (n->phase == MN_PICK || n->phase == MN_IDLE) {
                 n->me = (int8_t)(1 - m[5]);
                 n->peer_role = (int8_t)m[5];
@@ -200,6 +214,12 @@ static void apply_keys(morph_net_t *n) {
 static void flush(morph_net_t *n) {
     uint8_t m[MN_MSG_MAX];
     if (n->hello_due) { m[0] = 'H'; m[1] = MN_PROTO; if (tx(n, m, 2)) n->hello_due = false; else return; }
+    if (n->prof_due) {
+        m[0] = 'U'; m[1] = n->mine.unlocked; m[2] = n->mine.cleared;
+        memcpy(m + 3, n->mine.lv, UPG_COUNT);
+        m[7] = (uint8_t)n->mine.parts; m[8] = (uint8_t)(n->mine.parts >> 8);
+        if (tx(n, m, 9)) n->prof_due = false; else return;
+    }
     if (n->query_due) {
         m[0] = 'Q'; put24(m + 1, playing(n) ? n->peer_front : 0); m[4] = playing(n);
         if (tx(n, m, 5)) n->query_due = false; else return;

@@ -11,6 +11,7 @@
 //
 // 消息(第一字节是类型,多字节小端,每条 ≤ MN_MSG_MAX):
 //   'H' 版本                         连上后各发一次
+//   'U' 开到第几关(1) 打通过(1) 四项升级(4) 零件(2)   连上后各发一次(自己卡上的存档;两边都拿到了才开始)
 //   'R' 角色(0 库巴 / 1 爸爸)         选人
 //   'S' 种子(4) 主动方的角色           主动方:开一趟
 //   'I' 进度线(3) 第一个键的序号(1) 这条的编号(1) 收到你的最新编号(1) 那条在我这儿压了多久(1,4 ms 一格) 然后 0..4 个键:离进度线往回几步(1) 键(1:
@@ -27,7 +28,7 @@
 
 #include "morph_run.h"
 
-#define MN_PROTO 1
+#define MN_PROTO 2
 #define MN_MSG_MAX 16
 #define MN_DELAY 12          // 开头还没量到来回时,自己的键晚几步生效(10 ms 一步)
 #define MN_HIST 128          // 自己的键记多少个(断线补发)
@@ -41,7 +42,8 @@ typedef struct { uint32_t step; uint8_t p, key; bool lp; } mn_key_t;
 
 typedef struct {
     mn_send_fn send; void *ctx;
-    bool initiator, up, peer_hello;
+    bool initiator, up, peer_hello, peer_prof_ok;
+    mr_profile_t mine, peer_prof;  // 自己卡上的存档、对方的(开一趟时按角色放进 run.prof[])
     uint8_t phase;              // mn_phase_t
     int8_t me, peer_role;       // 自己 / 对方选的角色,-1 = 还没选
     morph_run_t run;
@@ -55,7 +57,7 @@ typedef struct {
     uint8_t unsent;             // hist 里最后几个还没发出去
     uint8_t rx_seq;             // 对方下一个键的序号
     uint32_t seed;              // 主动方开一趟用的种子(init 时给)
-    bool hello_due, pick_due, start_due, query_due;
+    bool hello_due, prof_due, pick_due, start_due, query_due;
     uint32_t last_send_ms, now_ms;
     uint32_t chk_step[4]; uint16_t chk_crc[4]; uint8_t chk_n;   // 自己最近几次校验(步数、值)
     uint32_t peer_chk_step; uint16_t peer_chk_crc; bool peer_chk; bool chk_due;
@@ -69,7 +71,7 @@ typedef struct {
     uint32_t tx, rx, refused, stall_ms;
 } morph_net_t;
 
-void morph_mn_init(morph_net_t *n, mn_send_fn send, void *ctx, uint32_t seed);
+void morph_mn_init(morph_net_t *n, mn_send_fn send, void *ctx, uint32_t seed, const mr_profile_t *mine);
 void morph_mn_connected(morph_net_t *n, bool initiator);
 void morph_mn_lost(morph_net_t *n);
 void morph_mn_on_msg(morph_net_t *n, const uint8_t *m, size_t len);

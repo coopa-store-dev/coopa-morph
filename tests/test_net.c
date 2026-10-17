@@ -12,6 +12,8 @@ typedef struct { pkt_t q[8]; int n; uint32_t ready; uint32_t delay, jitter; } pi
 static pipe_t ab, ba;
 static uint32_t now, rs = 99;
 static morph_net_t A, B;
+static const mr_profile_t PA = { 1, 0, { 0 }, 0 }, PB = { 2, 1, { 1, 1, 0, 0 }, 7 };
+#define DONE(n) ((n).run.phase == RUN_WIN || (n).run.phase == RUN_OVER)
 static uint32_t rr(void) { rs = rs * 1664525u + 1013904223u; return rs >> 8; }
 
 static bool psend(void *ctx, const void *m, size_t len) {
@@ -59,15 +61,15 @@ static void run_ms(uint32_t ms, bool keys, bot_t *ba_, bot_t *bb) {
             compared++;
             if (morph_mn_crc(&A.run) != morph_mn_crc(&B.run)) same_steps++;   // 不一样的次数
         }
-        if (A.run.phase >= RUN_WIN && B.run.phase >= RUN_WIN) return;
+        if (DONE(A) && DONE(B)) return;
     }
 }
 
 static void game(uint32_t delay, uint32_t jitter, bool drop) {
     memset(&ab, 0, sizeof(ab)); memset(&ba, 0, sizeof(ba));
     ab.delay = ba.delay = delay; ab.jitter = ba.jitter = jitter;
-    morph_mn_init(&A, psend, &ab, 4242);
-    morph_mn_init(&B, psend, &ba, 777);
+    morph_mn_init(&A, psend, &ab, 4242, &PA);
+    morph_mn_init(&B, psend, &ba, 777, &PB);
     morph_mn_connected(&A, true);
     morph_mn_connected(&B, false);
     bot_t x = { 0 }, y = { 0 };
@@ -76,6 +78,7 @@ static void game(uint32_t delay, uint32_t jitter, bool drop) {
     morph_mn_pick(&B, 0);   // 被连方先选库巴
     run_ms(2000, false, &x, &y);
     assert(A.phase == MN_PLAY && B.phase == MN_PLAY && A.me == 1 && B.me == 0);
+    assert(A.run.prof[1].unlocked == 1 && A.run.prof[0].parts == 7 && B.run.prof[0].lv[UPG_HP] == 1 && B.run.prof[1].parts == 0);
     same_steps = compared = hitch = 0; t_start = now; last_a = A.step; last_t = now;
     if (drop) {
         run_ms(60000, true, &x, &y);
@@ -92,7 +95,7 @@ static void game(uint32_t delay, uint32_t jitter, bool drop) {
            delay, jitter, drop ? "、中间断线 3 秒" : "", A.step, compared, same_steps, A.desync, B.desync, A.tx, B.tx,
            A.refused, B.refused, (now - t_start) / 1000, A.step / 100, hitch, A.rtt, A.delay, A.run.phase, B.run.phase);
     assert(compared > 100 && same_steps == 0 && A.desync == 0 && B.desync == 0);
-    assert(A.run.phase >= RUN_WIN && A.run.phase == B.run.phase);
+    assert(DONE(A) && A.run.phase == B.run.phase);
 }
 
 int main(void) {
@@ -102,7 +105,7 @@ int main(void) {
     // 选人撞了:两边都选库巴,主动方算
     memset(&ab, 0, sizeof(ab)); memset(&ba, 0, sizeof(ba));
     ab.delay = ba.delay = 50;
-    morph_mn_init(&A, psend, &ab, 1); morph_mn_init(&B, psend, &ba, 2);
+    morph_mn_init(&A, psend, &ab, 1, &PA); morph_mn_init(&B, psend, &ba, 2, &PB);
     morph_mn_connected(&A, true); morph_mn_connected(&B, false);
     bot_t x = { 0 }, y = { 0 };
     run_ms(300, false, &x, &y);
@@ -112,7 +115,7 @@ int main(void) {
     // 对方重启过(连回来时不在打)→ 这边 MN_BAD
     morph_mn_lost(&A); morph_mn_lost(&B);
     ab.n = ba.n = 0;
-    morph_mn_init(&B, psend, &ba, 2);
+    morph_mn_init(&B, psend, &ba, 2, &PB);
     morph_mn_connected(&A, true); morph_mn_connected(&B, false);
     run_ms(1000, false, &x, &y);
     assert(A.phase == MN_BAD);
@@ -121,7 +124,7 @@ int main(void) {
         uint8_t m[MN_MSG_MAX];
         size_t len = rr() % (MN_MSG_MAX + 1);
         for (size_t k = 0; k < len; k++) m[k] = (uint8_t)rr();
-        if (len) m[0] = "HRSIQC"[rr() % 6];
+        if (len) m[0] = "HURSIQC"[rr() % 7];
         morph_mn_on_msg(&B, m, len);
         morph_mn_tick(&B, 17);
     }

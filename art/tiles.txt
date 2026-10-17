@@ -1,0 +1,92 @@
+# 格子和装饰。每个字符生成时放大成 2×2 像素(平铺时 LVGL 不放大):关卡格子 16×16 → 正好一格 32×32。
+# 地面顶 / 地面里 / 砖左右上下接得上(平铺);单向平台只画上面一条木板,下面透明;云、草丛是装饰(不碰)。
+== top
+GGGGGGGGGGGGGGGG
+GGGGGGGGGGGGGGGG
+GGDGGGGGGDGGGGGG
+DGDDGGDGDDDGGDGD
+bDbbDDbbbbbDDbbD
+bbbbbbbbbbbbbbbb
+bbnbbbbbbbbbnbbb
+bbbbbbbbbbbbbbbb
+bbbbbbnbbbbbbbbb
+bbbbbbbbbbbbbbbb
+bnbbbbbbbbbnbbbb
+bbbbbbbbbbbbbbbb
+bbbbbbbbnbbbbbbb
+bbbbbbbbbbbbbbbb
+bbbbnbbbbbbbbbnb
+bbbbbbbbbbbbbbbb
+== fill
+bbbbbbbbbbbbbbbb
+bbnbbbbbbbbbnbbb
+bbbbbbbbbbbbbbbb
+bbbbbbnbbbbbbbbb
+bbbbbbbbbbbbbbbb
+bnbbbbbbbbbnbbbb
+bbbbbbbbbbbbbbbb
+bbbbbbbbnbbbbbbb
+bbbbbbbbbbbbbbbb
+bbbbnbbbbbbbbbnb
+bbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbb
+bbnbbbbbbbbnbbbb
+bbbbbbbbbbbbbbbb
+bbbbbbbnbbbbbbbb
+bbbbbbbbbbbbbbbb
+== brick
+ooooooobooooooob
+ooooooobooooooob
+ooooooobooooooob
+ooooooobooooooob
+ooooooobooooooob
+ooooooobooooooob
+rrrrrrrbrrrrrrrb
+bbbbbbbbbbbbbbbb
+oooboooooooboooo
+oooboooooooboooo
+oooboooooooboooo
+oooboooooooboooo
+oooboooooooboooo
+oooboooooooboooo
+rrrbrrrrrrrbrrrr
+bbbbbbbbbbbbbbbb
+== plat
+kkkkkkkkkkkkkkkk
+nnnnnnnnnnnnnnnn
+bbbbbbbbbbbbbbbb
+bbbkbbbbbbbkbbbb
+bbbbbbbbbbbbbbbb
+kkkkkkkkkkkkkkkk
+................
+................
+................
+................
+................
+................
+................
+................
+................
+................
+== cloud
+.........kkkkk..........
+.......kkwwwwwkk........
+......kwwwwwwwwwk.kkkk..
+....kkwwwwwwwwwwkkwwwwk.
+...kwwwwwwwwwwwwwwwwwwk.
+..kwwwwwwwwwwwwwwwwwwwwk
+.kwwwwwwwwwwwwwwwwwwwwwk
+kwwwwwwwwwwwwwwwwwwwwwhk
+kwwwwwwwwwwwwwwwwwwwhhk.
+.khhwwwwwwhhhwwwwwhhkk..
+..kkhhhhhhkkkhhhhhkk....
+....kkkkkk...kkkkk......
+== bush
+....kkkk..kkk...
+..kkGGGGkkGGGk..
+.kGGGGGGGGGGGGk.
+kGGDGGGGGGDGGGGk
+kGGGGGDGGGGGGDGk
+kGDGGGGGGDGGGGGk
+kDGGDGGGDGGGDGGk
+kDDDDDDDDDDDDDDk

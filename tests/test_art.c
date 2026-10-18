@@ -1,6 +1,8 @@
 // tests/test_art.c —— 常量图:人物每个姿势两个方向都是 16×16 的 RGB565A8、朝左那张是朝右的水平翻转、姿势各不相同;
-// 越界给库巴站立。格子图都不空;关卡格子(地面顶、地面里、砖、单向平台)正好一格大(LVGL 平铺时不放大,生成时放大好了)。
+// 越界给库巴站立。换装(morph_skin):不变身 = 原图隔点取样;变身后衣服、头发换了颜色,头顶多出东西,弹簧腿往下拉;朝左是翻转。格子图都不空;关卡格子(地面顶、地面里、砖、单向平台)正好一格大(LVGL 平铺时不放大,生成时放大好了)。
 #include "morph_art.h"
+#include "morph_battle.h"
+#include "morph_skin.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -93,8 +95,61 @@ static void test_tiles(void) {
     assert(morph_art_tile(MT_IMG_TOP)->header.w == 32 && morph_art_tile(MT_IMG_TOP)->header.h == 32);
 }
 
+static int px(const lv_image_dsc_t *d, int x, int y, uint16_t *c) {   // 换装图上一点:返回透明度,c = 颜色
+    int i = y * MSK_W + x;
+    if (c) *c = (uint16_t)(d->data[i * 2] | d->data[i * 2 + 1] << 8);
+    return d->data[MSK_W * MSK_H * 2 + i];
+}
+static int top_row(const lv_image_dsc_t *d) {
+    for (int y = 0; y < MSK_H; y++)
+        for (int x = 0; x < MSK_W; x++) if (px(d, x, y, NULL)) return y;
+    return MSK_H;
+}
+static void test_skin(void) {
+    for (uint8_t ch = 0; ch < CHARS; ch++)
+        for (uint8_t pose = 0; pose < MA_POSES; pose++) {
+            bool chg;
+            const lv_image_dsc_t *n = morph_skin(0, ch, pose, false, FORM_NORMAL, &chg);
+            check_head(n);
+            assert(n->header.w == MSK_W && n->header.h == MSK_H);
+            const lv_image_dsc_t *o = morph_art_pose2(ch, pose, false);   // 不变身:就是原图隔一个点取一个,贴着底
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++) {
+                    int i = y * 2 * 32 + x * 2;
+                    uint16_t c;
+                    assert(px(n, x, MSK_H - 16 + y, &c) == o->data[32 * 32 * 2 + i]);
+                    if (o->data[32 * 32 * 2 + i]) assert(c == (o->data[i * 2] | o->data[i * 2 + 1] << 8));
+                }
+            int base_top = top_row(n);
+            uint8_t normal[MSK_W * MSK_H * 3];
+            memcpy(normal, n->data, sizeof(normal));
+            for (uint8_t f = 1; f < FORM_COUNT; f++) {
+                const lv_image_dsc_t *d = morph_skin(0, ch, pose, false, f, &chg);
+                assert(chg && memcmp(d->data, normal, sizeof(normal)) != 0);   // 样子变了
+                if (pose != MA_KO) assert(top_row(d) < base_top);              // 头顶长出东西
+                morph_skin(0, ch, pose, false, f, &chg);
+                assert(!chg);                                                   // 一样的不重画
+                uint8_t r[MSK_W * MSK_H * 3];
+                memcpy(r, d->data, sizeof(r));
+                const lv_image_dsc_t *l = morph_skin(1, ch, pose, true, f, &chg);
+                for (int y = 0; y < MSK_H; y++)
+                    for (int x = 0; x < MSK_W; x++) {
+                        int a = y * MSK_W + x, b = y * MSK_W + (MSK_W - 1 - x);
+                        assert(l->data[MSK_W * MSK_H * 2 + a] == r[MSK_W * MSK_H * 2 + b]);
+                    }
+            }
+            if (pose == MA_IDLE) {   // 弹簧:底下 4 行是灰白相间的弹簧,两人都是
+                const lv_image_dsc_t *d = morph_skin(0, ch, pose, false, FORM_SPRING, &chg);
+                uint16_t a, b;
+                int x = 4;
+                assert(px(d, x, MSK_H - 4, &a) && px(d, x, MSK_H - 3, &b) && a != b);
+            }
+        }
+}
+
 int main(void) {
     test_poses();
+    test_skin();
     test_out_of_range();
     test_tiles();
     puts("test_art: ok");

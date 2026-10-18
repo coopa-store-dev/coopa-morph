@@ -57,8 +57,8 @@ typedef enum {
     BE_HIT = 0,   // who = 怪下标,v = 伤害,a = 1 重击 / 2 慢动作里 / 4 被挡住(冰盾、无敌),x / y = 位置
     BE_PHIT,      // who = 人,v = 伤害(0 = 挡住,负 = 回血)
     BE_SAY,       // a = mbt_say_t,who = 人(SAY_MORPH / DOWN / REVIVED / TRAPPED / FREED 用),v = 变身(SAY_MORPH)
-    BE_CINE,      // 大招 / 超必杀 / 合体开始特写(看 b->cine)
-    BE_BOOM,      // 特写放完、伤害打出去:a = mbt_cine_kind_t
+    BE_CINE,      // 大招 / 超必杀 / 合体开始(看 b->cine)
+    BE_BOOM,      // 大招打完了:a = mbt_cine_kind_t
     BE_KILL,      // who = 怪下标
     BE_SHIELD,    // who = 人(举盾 / 弹反 a = 1)
     BE_WHOOSH,    // who = 人(翻滚、出拳)
@@ -101,7 +101,18 @@ typedef struct {
 typedef struct { bool used; uint8_t form; float x, vx; int32_t t; int8_t by; } mbt_shot_t;   // 人放的(冰球、火箭)
 typedef struct { bool used, refl, big; uint8_t kind; int8_t by; float x, vx; int32_t t; int16_t dmg; } mbt_fshot_t;   // 怪扔的(kind 0 雪球、1 火箭;refl = 被弹反回去了,by = 谁弹的)
 typedef struct { bool used; float x, y, vx, vy; int32_t t; uint8_t form; } mbt_star_t;
-typedef struct { uint8_t kind, form, form2, lv, bars; int8_t p, q; bool low; int32_t t; } mbt_cine_t;
+// 大招 / 超必杀 / 合体:在场上一下一下打出来(怪全定住,只有放招的人在动)。时间线(毫秒,t 从 0 走到 end):
+//   0..intro 亮招式名(磁铁把小怪吸过来);目标 k 第一下打中在 hit0(k) = intro + lead + k * step,之后每 sub 一下,共 hits 下;
+//   lead = 第一下之前飞过去 / 砸下来 / 冲过去 / 跳过去的时间。step = 0:几个目标一起打(百裂拳)。
+// 冲过去、跳过去的(普通、弹簧)人真的挪到怪跟前。画面照这几个数画,和规则一步不差。
+typedef struct {
+    uint8_t kind, form, form2, lv, bars; int8_t p, q; bool low; int32_t t;
+    uint8_t n, hits;                 // 几个目标(放招那一下挑好,近的先打)、每个打几下
+    int8_t tgt[MBT_MAXF];
+    int16_t intro, lead, step, sub, end;
+} mbt_cine_t;
+int32_t morph_mbt_cine_hit0(const mbt_cine_t *c, int k);   // 目标 k 第一下打中的时刻
+bool morph_mbt_cine_moves(uint8_t form);                    // 这个变身放招时人要冲 / 跳到怪跟前(普通、弹簧)
 
 typedef struct {
     mbt_hero_t h[2];

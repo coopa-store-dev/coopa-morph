@@ -27,16 +27,20 @@
 //   MF_ICEKING:冰淇淋大王(24×24)
 //   MF_DYNAMO:发电大魔像(24×24)
 //   MF_DEMON:玩具魔王(24×24)
-//   MX_HAT_ICE:冰淇淋帽子
-//   MX_HAT_VOLT:电池帽子
+//   MX_TOP_ICE:冰淇淋变身头顶
+//   MX_TOP_VOLT:电池变身头顶
 //   MX_STAR:晕的星星
 //   MX_SPARK:打中的火花
 //   MX_ICEBALL:冰球
-//   MX_HAT_SPRING:弹簧帽子
-//   MX_HAT_MAGNET:磁铁帽子
-//   MX_HAT_ROCKET:火箭帽子
+//   MX_TOP_SPRING:弹簧变身头顶
+//   MX_TOP_MAGNET:磁铁变身头顶
+//   MX_TOP_ROCKET:火箭变身头顶
 //   MX_SNOWBALL:雪球
 //   MX_FIREBALL:火球
+//   MX_CRYSTAL:身边的小冰晶
+//   MX_BIT:身边的小铁块
+//   MX_FLAME:背后喷的火
+//   MX_ICEBLOCK:大招砸下来的冰块
 #pragma once
 
 #include <stdbool.h>
@@ -47,7 +51,7 @@
 typedef enum { MA_IDLE = 0, MA_WALK1, MA_WALK2, MA_JAB, MA_WINDUP, MA_HEAVY, MA_GUARD, MA_HIT, MA_KO, MA_SPECIAL, MA_WIN, MA_JUMP, MA_POSES } morph_pose_t;
 typedef enum { MT_IMG_TOP = 0, MT_IMG_COUNT } morph_tile_img_t;
 typedef enum { MF_CLOCK = 0, MF_ICE, MF_VOLT, MF_BEAR, MF_SNOW, MF_FROG, MF_MAGNET, MF_ROCKET, MF_COIL, MF_ICEKING, MF_DYNAMO, MF_DEMON, MF_COUNT } morph_foe_img_t;
-typedef enum { MX_HAT_ICE = 0, MX_HAT_VOLT, MX_STAR, MX_SPARK, MX_ICEBALL, MX_HAT_SPRING, MX_HAT_MAGNET, MX_HAT_ROCKET, MX_SNOWBALL, MX_FIREBALL, MX_COUNT } morph_fx_t;
+typedef enum { MX_TOP_ICE = 0, MX_TOP_VOLT, MX_STAR, MX_SPARK, MX_ICEBALL, MX_TOP_SPRING, MX_TOP_MAGNET, MX_TOP_ROCKET, MX_SNOWBALL, MX_FIREBALL, MX_CRYSTAL, MX_BIT, MX_FLAME, MX_ICEBLOCK, MX_COUNT } morph_fx_t;
 
 const lv_image_dsc_t *morph_art_tile(uint8_t t);                                    // 越界返回 NULL
 const lv_image_dsc_t *morph_art_fx(uint8_t x);                                      // 越界返回 NULL

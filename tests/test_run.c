@@ -2,6 +2,7 @@
 // 不崩、能走到 Boss、有输有赢,打印每关的通关率和一趟多长;另外几条规则单测(▼● 技能、▼▲ 超必杀、合体、拉人、吞怪变身、
 // 冰盾、线圈、冰块、弹反雪球、营地升级和开关)。
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -121,6 +122,26 @@ static void t_skill_super_combo(void) {
     B.h[0].x = B.f[0].x - 30;
     morph_mbt_input(&B, 0, MBT_DOWN, false); tick(150); morph_mbt_input(&B, 0, MBT_OK, false);
     assert(B.h[0].st == HS_SKILL);
+}
+
+// 大招在场上一下一下打:近的先挨,远的后挨;冲 / 跳过去的人真的到了怪跟前
+static void t_cine_field(void) {
+    uint8_t three[3] = { ET_CLOCK, ET_CLOCK, ET_CLOCK };
+    start(three, 3, 1, 100, 0);
+    B.f[0].x = 120; B.f[1].x = 160; B.f[2].x = 220; B.h[0].x = 40;
+    B.h[0].form = FORM_VOLT;
+    morph_mbt_input(&B, 0, MBT_UP, false);
+    assert(B.cine_on && B.cine.n == 3 && B.cine.hits == 2 && B.cine.tgt[0] == 0 && B.cine.tgt[2] == 2);
+    tick(morph_mbt_cine_hit0(&B.cine, 0));
+    assert(B.f[0].hp < B.f[0].max && B.f[2].hp == B.f[2].max);
+    tick(B.cine.end - B.cine.t);
+    assert(!B.cine_on && B.f[2].hp < B.f[2].max && B.h[0].x == 40);
+    one(ET_BEAR, 1, 300, 0);
+    B.h[0].form = FORM_SPRING; B.h[0].x = 30; B.f[0].x = 200;
+    morph_mbt_input(&B, 0, MBT_DOWN, false); tick(100); morph_mbt_input(&B, 0, MBT_UP, false);
+    assert(B.cine_on && B.cine.kind == CINE_SUPER && B.cine.n == 1);
+    tick(B.cine.end);
+    assert(!B.cine_on && fabsf(B.h[0].x - B.f[0].x) < 40 && B.f[0].hp == B.f[0].max - 150);
 }
 
 static void t_eat_revive(void) {
@@ -261,6 +282,7 @@ static void t_hub(void) {
 
 int main(void) {
     t_skill_super_combo();
+    t_cine_field();
     t_eat_revive();
     t_eat_like_player();
     t_guard();

@@ -64,6 +64,9 @@ PALETTE = {
     "F": 0xD8404A,  # 广场舞奶奶的红花衣
     "l": 0xF29CC8,  # 粉扇子
     "R": 0xE86A55,  # 暴怒奶奶的红脸
+    # 下面几个是库巴变变变自己加的(外壳调色板里没有)
+    "i": 0xB3E5FC,  # 冰
+    "I": 0x4FC3F7,  # 冰的阴影
 }
 
 # 下标 ch:0 库巴、1 爸爸
@@ -81,9 +84,10 @@ FOES = [("CLOCK", "发条兵(大发条兵也用它)", 16, 16), ("ICE", "冰淇�
         ("MAGNET", "磁铁怪", 16, 16), ("ROCKET", "烟花炮", 16, 16), ("COIL", "线圈", 16, 16),
         ("ICEKING", "冰淇淋大王", 24, 24), ("DYNAMO", "发电大魔像", 24, 24), ("DEMON", "玩具魔王", 24, 24)]
 # 顺序 = morph_fx_t:不翻转,大小各不一样
-FX = [("HAT_ICE", "冰淇淋帽子"), ("HAT_VOLT", "电池帽子"), ("STAR", "晕的星星"), ("SPARK", "打中的火花"), ("ICEBALL", "冰球"),
-      ("HAT_SPRING", "弹簧帽子"), ("HAT_MAGNET", "磁铁帽子"), ("HAT_ROCKET", "火箭帽子"), ("SNOWBALL", "雪球"),
-      ("FIREBALL", "火球")]
+FX = [("TOP_ICE", "冰淇淋变身头顶"), ("TOP_VOLT", "电池变身头顶"), ("STAR", "晕的星星"), ("SPARK", "打中的火花"),
+      ("ICEBALL", "冰球"), ("TOP_SPRING", "弹簧变身头顶"), ("TOP_MAGNET", "磁铁变身头顶"), ("TOP_ROCKET", "火箭变身头顶"),
+      ("SNOWBALL", "雪球"), ("FIREBALL", "火球"), ("CRYSTAL", "身边的小冰晶"), ("BIT", "身边的小铁块"), ("FLAME", "背后喷的火"),
+      ("ICEBLOCK", "大招砸下来的冰块")]
 # 顺序 = morph_tile_img_t;level = 关卡格子(要正好一格:16×16 放大两倍 = ML_TILE)
 TILES = [("TOP", "地面顶(草;战斗页平铺,每关染不同颜色)", True)]
 POSE_W = POSE_H = 16

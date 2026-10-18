@@ -13,8 +13,8 @@ all: $(addprefix $(OUT)/,$(TESTS))
 $(OUT):
 	mkdir -p $@
 
-# 常量图:宿主上没有 LVGL,用 stub/lvgl.h(只有 lv_image_dsc_t)
-$(OUT)/test_art: test_art.c ../src/morph_art.c $(HDRS) stub/lvgl.h | $(OUT)
+# 常量图、换装:宿主上没有 LVGL,用 stub/lvgl.h(只有 lv_image_dsc_t)
+$(OUT)/test_art: test_art.c ../src/morph_art.c ../src/morph_skin.c $(HDRS) stub/lvgl.h | $(OUT)
 	$(CC) $(CFLAGS) -Istub $(filter %.c,$^) -o $@
 
 # 一趟冒险:乱按的人一个人 / 两个人打很多趟,加几条规则单测

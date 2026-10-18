@@ -1,24 +1,17 @@
-# 特效和变身帽子。顺序 = morph_fx_t,大小各不一样,不翻转。
-# 冰淇淋帽子:粉色冰淇淋球插在蛋筒里。
-== hat_ice
-..kkkk..
-.kllllk.
-klllllck
-klPllPlk
-.kkkkkk.
-..knnk..
-..knbk..
-...kk...
-# 电池帽子:黄色电池,顶上灰色电池头,中间一道闪电。
-== hat_volt
-...kk...
-...hh...
-.kkkkkk.
-kyyykyyk
-kyykkyyk
-kyykyyyk
-kooooook
-.kkkkkk.
+# 特效和变身头顶的东西。顺序 = morph_fx_t,大小各不一样,不翻转。
+# 冰淇淋变身头顶:头发变成粉白冰淇淋卷,这里是卷尖和一颗樱桃。最底下一行压在头顶的描边上。
+== top_ice
+....r....
+...krk...
+..klwlk..
+.kwlwlwk.
+klwlwlwlk
+# 电池变身头顶:头发全竖起来,三根黄色尖刺。
+== top_volt
+.k...k...k.
+kyk.kyk.kyk
+kyykyyykyyk
+.kyyyyyyyk.
 # 晕的星星(照库巴格斗)。
 == star
 ....k....
@@ -52,36 +45,25 @@ kwhhhk
 khhhHk
 khhHHk
 .kkkk.
-# 弹簧帽子:灰色弹簧。
-== hat_spring
-..kkkk..
-.khhhhk.
-..kHHk..
-.khhhhk.
-..kHHk..
-.khhhhk.
-..kHHk..
-.kkkkkk.
-# 磁铁帽子:小红马蹄磁铁。
-== hat_magnet
-.kkkkkk.
-krrrrrrk
-krrkkrrk
-krk..krk
-krk..krk
-khk..khk
-khk..khk
-.k....k.
-# 火箭帽子:小火箭,红头白身子。
-== hat_rocket
-...kk...
-..krrk..
-..kwwk..
-..kwBk..
-..kwwk..
-.kkwwkk.
-.kokkok.
-..y..y..
+# 弹簧变身头顶:绿色帽子上一对青蛙大眼睛。
+== top_spring
+.kkk...kkk.
+kwwwk.kwwwk
+kwkwkkkwkwk
+.kGGGGGGGk.
+# 磁铁变身头顶:银色头盔两边一红一蓝两个磁极。
+== top_magnet
+.kk.....kk.
+krrk...kBBk
+krrkkkkkBBk
+.khhhhhhhk.
+# 火箭变身头顶:白头盔顶上一片红色尾翼。
+== top_rocket
+....k....
+...krk...
+..krrrk..
+.krrrrrk.
+kwwwwwwwk
 # 雪球。
 == snowball
 .kkkk.
@@ -100,3 +82,37 @@ yorrrroy
 yoorrooy
 .yoooy..
 ..yyyy..
+# 冰淇淋变身身边飘的小冰晶。
+== crystal
+..w..
+.wiw.
+wiIiw
+.wiw.
+..w..
+# 磁铁变身身边绕着转的小铁块。
+== bit
+.kk.
+khHk
+kHHk
+.kk.
+# 火箭变身背后一直往下喷的火(背包喷口)。
+== flame
+.yyyy.
+yooooy
+yorroy
+.yrry.
+.yrry.
+..yy..
+..y...
+# 冰淇淋大招从天上砸下来的冰块。
+== iceblock
+kkkkkkkkkk
+kwwwiiiiik
+kwiiiiiiIk
+kwiiiiiiIk
+kiiiiiiiIk
+kiiiiiiIIk
+kiiiiiIIIk
+kiiiiIIIIk
+kiIIIIIIIk
+kkkkkkkkkk

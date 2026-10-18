@@ -281,15 +281,57 @@ static void skill(morph_battle_t *b, int p) {
     }
 }
 
+// ---------------- 大招 / 超必杀 / 合体:在场上一下一下打出来(时间线见 mbt_cine_t) ----------------
+#define CINE_LEAD 220
+#define CINE_OUTRO 400
+
+bool morph_mbt_cine_moves(uint8_t form) { return form == FORM_SPRING || form == FORM_NORMAL; }
+int32_t morph_mbt_cine_hit0(const mbt_cine_t *c, int k) { return c->intro + c->lead + k * c->step; }
+
+static int ult_hits(uint8_t form, int lv) {
+    switch (form) {
+        case FORM_NORMAL: return 4 + lv * 2;   // 百裂拳
+        case FORM_VOLT: return lv + 1;         // 一道道雷
+        case FORM_ROCKET: return lv * 3;
+        case FORM_SPRING: return 3;
+        case FORM_MAGNET: return 2;
+        default: return 1;                     // 冰块砸一下
+    }
+}
+
+// 挑目标(近的先打;百裂拳只打得到跟前的)、算时间线,开始
+static void cine_begin(morph_battle_t *b, mbt_cine_t c) {
+    mbt_hero_t *h = &b->h[c.p];
+    face_foe(b, h);
+    c.n = 0;
+    for (int i = 0; i < MBT_MAXF; i++) {
+        const mbt_foe_t *f = &b->f[i];
+        if (!foe_alive(f)) continue;
+        if (c.kind == CINE_ULT && c.form == FORM_NORMAL && fabsf(f->x - h->x) >= 70 + c.lv * 30) continue;
+        int k = c.n++;
+        while (k > 0 && fabsf(b->f[c.tgt[k - 1]].x - h->x) > fabsf(f->x - h->x)) { c.tgt[k] = c.tgt[k - 1]; k--; }
+        c.tgt[k] = (int8_t)i;
+    }
+    c.hits = (uint8_t)(c.kind == CINE_ULT ? ult_hits(c.form, c.lv) : 6);
+    c.intro = c.kind == CINE_ULT ? 450 : 700;
+    c.lead = CINE_LEAD;
+    c.sub = c.kind == CINE_ULT && c.form != FORM_NORMAL ? 60 : 50;
+    bool moves = morph_mbt_cine_moves(c.form) || (c.kind == CINE_COMBO && morph_mbt_cine_moves(c.form2));
+    c.step = (int16_t)(c.kind == CINE_ULT && c.form == FORM_NORMAL ? 0 : moves ? c.lead + (c.hits - 1) * c.sub + 80 : 200);
+    c.end = (int16_t)(morph_mbt_cine_hit0(&c, c.n ? c.n - 1 : 0) + (c.hits - 1) * c.sub + CINE_OUTRO);
+    c.t = 0;
+    b->cine_on = true;
+    b->cine = c;
+    ev(b, BE_CINE, (uint8_t)c.p, c.kind, c.kind == CINE_COMBO ? c.bars : c.lv, h->x, 0);
+}
+
 static void fire_ult(morph_battle_t *b, int p) {
     mbt_hero_t *h = &b->h[p];
     int lv = h->en / 100;
     if (lv < 1) { h->pend = false; return; }
     h->en = 0; h->pend = false;
-    b->cine_on = true;
-    b->cine = (mbt_cine_t){ .kind = CINE_ULT, .form = h->form, .lv = (uint8_t)lv, .p = (int8_t)p, .q = -1 };
     h->inv = 2000; set_st(h, HS_ULT);
-    ev(b, BE_CINE, (uint8_t)p, CINE_ULT, lv, h->x, 0);
+    cine_begin(b, (mbt_cine_t){ .kind = CINE_ULT, .form = h->form, .lv = (uint8_t)lv, .p = (int8_t)p, .q = -1 });
 }
 
 static int stunned_near(morph_battle_t *b, float x) {
@@ -368,11 +410,9 @@ void morph_mbt_input(morph_battle_t *b, int p, uint8_t key, bool lp) {
         if (!(h->st == HS_IDLE || h->st == HS_WALK || h->st == HS_ATK || h->st == HS_SHIELD || h->st == HS_ROLL)) return;
         if (b->now - h->last_down < DOWN_COMBO_MS && h->en >= MBT_EN_MAX) {   // 超必杀
             h->en = 0; h->pend = false;
-            b->cine_on = true;
-            b->cine = (mbt_cine_t){ .kind = CINE_SUPER, .form = h->form, .lv = 3, .p = (int8_t)p, .q = -1,
-                                    .low = h->hp * 10 < h->maxhp * 3 };
             h->inv = 3000; set_st(h, HS_ULT);
-            ev(b, BE_CINE, (uint8_t)p, CINE_SUPER, 3, h->x, 0);
+            cine_begin(b, (mbt_cine_t){ .kind = CINE_SUPER, .form = h->form, .lv = 3, .p = (int8_t)p, .q = -1,
+                                        .low = h->hp * 10 < h->maxhp * 3 });
             return;
         }
         if (h->en < 100) { say(b, SAY_NO_ENERGY, p, 0); return; }
@@ -380,11 +420,9 @@ void morph_mbt_input(morph_battle_t *b, int p, uint8_t key, bool lp) {
             int qp = 1 - p;
             uint8_t bars = (uint8_t)(q->pend_en / 100 + h->en / 100);
             q->en = 0; h->en = 0; q->pend = false;
-            b->cine_on = true;
-            b->cine = (mbt_cine_t){ .kind = CINE_COMBO, .form = h->form, .form2 = q->form, .bars = bars,
-                                    .p = (int8_t)p, .q = (int8_t)qp };
             h->inv = q->inv = 3000; set_st(h, HS_ULT); set_st(q, HS_ULT);
-            ev(b, BE_CINE, (uint8_t)p, CINE_COMBO, bars, h->x, 0);
+            cine_begin(b, (mbt_cine_t){ .kind = CINE_COMBO, .form = h->form, .form2 = q->form, .bars = bars,
+                                        .p = (int8_t)p, .q = (int8_t)qp });
             return;
         }
         if (q && free_hero(q) && q->en >= 100) { h->pend = true; h->pend_t = 0; h->pend_en = h->en; return; }
@@ -909,49 +947,94 @@ static void step_coils(morph_battle_t *b) {
     if (back) say(b, SAY_COIL_BACK, 0, 0);
 }
 
-// ---------------- 特写放完:大招 / 超必杀 / 合体 ----------------
-static void boom(morph_battle_t *b) {
+// ---------------- 大招在场上打:吸怪、冲 / 跳过去、一下一下打 ----------------
+static bool cine_has(const mbt_cine_t *c, uint8_t form) { return c->form == form || (c->kind == CINE_COMBO && c->form2 == form); }
+
+// 磁铁:开头这段把小怪吸到跟前(开头结束时正好到)
+static void cine_gather(morph_battle_t *b) {
+    mbt_cine_t *c = &b->cine;
+    if (!cine_has(c, FORM_MAGNET) || c->t > c->intro) return;
+    const mbt_hero_t *h = &b->h[c->p];
+    float k = (float)MBT_STEP / (float)(c->intro - c->t + MBT_STEP);
+    int j = 0;
+    for (int n = 0; n < c->n; n++) {
+        mbt_foe_t *f = &b->f[c->tgt[n]];
+        if (!foe_alive(f) || !small(f)) continue;
+        float dest = clampf(h->x + h->face * (24 + 10 * j++), L_EDGE, R_EDGE);
+        f->x += (dest - f->x) * k;
+    }
+}
+
+// 冲 / 跳的人:去当前目标(已经开始飞过去的最后一个)跟前,第一下打中时正好到;far = 合体的第二个人站远一点
+static void cine_move(morph_battle_t *b, int who, uint8_t form, bool far) {
+    mbt_cine_t *c = &b->cine;
+    if (who < 0 || !c->n || !morph_mbt_cine_moves(form)) return;
+    int k = 0;
+    if (c->step) while (k + 1 < c->n && morph_mbt_cine_hit0(c, k + 1) - c->lead <= c->t) k++;
+    int32_t at = morph_mbt_cine_hit0(c, k);
+    if (c->t < at - c->lead) return;
+    mbt_hero_t *h = &b->h[who];
+    const mbt_foe_t *f = &b->f[c->tgt[k]];
+    float half = def(f)->w / 2.0f + (far ? 18 : 8);
+    float dest = clampf(h->x < f->x ? f->x - half : f->x + half, L_EDGE, R_EDGE);
+    int32_t left = at - c->t;
+    h->x = left <= 0 ? dest : h->x + (dest - h->x) * (float)MBT_STEP / (float)(left + MBT_STEP);
+    face_to(h, f->x);
+}
+
+// 目标 k 的第 j 下
+static void cine_hit(morph_battle_t *b, int k, int j) {
+    const mbt_cine_t *c = &b->cine;
+    int i = c->tgt[k];
+    mbt_foe_t *f = &b->f[i];
+    if (!foe_alive(f)) return;
+    const mbt_hero_t *h = &b->h[c->p];
+    float um = c->kind == CINE_COMBO ? (umul(h) + umul(&b->h[c->q])) / 2 : umul(h);
+    bool last = j == c->hits - 1, freeze = cine_has(c, FORM_ICE);
+    if (c->kind == CINE_ULT) {
+        int brk = ULT_BREAK[c->lv] + (c->form == FORM_MAGNET);
+        if (j == 0 && f->armor && brk) {
+            f->armor = (uint8_t)(f->armor > brk ? f->armor - brk : 0);
+            say(b, f->armor ? SAY_ARMOR_CRACK : SAY_ARMOR_BREAK, 0, 0);
+        }
+        hit(b, c->p, i, (float)ULT_DMG[c->lv] * um / c->hits, 24 / c->hits,
+            HIT_FLAT | (last ? HIT_BIG | (cine_has(c, FORM_SPRING) ? HIT_KNOCK : 0) : 0));
+        if (last && freeze && f->hp > 0) f->freeze_t = 1500 + c->lv * 1000;
+    } else {
+        float total = (c->kind == CINE_SUPER ? SUPER_DMG * (c->low ? 2 : 1) : COMBO_DMG + 30 * (c->bars > 2 ? c->bars - 2 : 0)) * um;
+        if (j == 0) f->armor = 0;
+        hit(b, c->p, i, total / c->hits, 0, HIT_FLAT | (last ? HIT_BIG : 0));
+        if (last && f->hp > 0 && !is_coil(f)) {
+            f->stun_g = 0; f->stun_t = def(f)->boss ? 3000 : 4000; f->st = FS_STUN; f->atk = 0; f->y = 0;
+            if (has_guard(f)) f->guard_t = 4000;
+        }
+        if (last && freeze && f->hp > 0) f->freeze_t = 2000;
+    }
+}
+
+static void cine_end(morph_battle_t *b) {
     mbt_cine_t c = b->cine;
     b->cine_on = false;
     b->shake_t = c.kind == CINE_ULT ? 500 : 900; b->stop_t = 150;
-    mbt_hero_t *h = &b->h[c.p];
-    float um = c.kind == CINE_COMBO ? (umul(h) + umul(&b->h[c.q])) / 2 : umul(h);
-    bool gather = c.form == FORM_MAGNET || (c.kind == CINE_COMBO && c.form2 == FORM_MAGNET);
-    bool bounce = c.form == FORM_SPRING || (c.kind == CINE_COMBO && c.form2 == FORM_SPRING);
-    bool freeze = c.form == FORM_ICE || (c.kind == CINE_COMBO && c.form2 == FORM_ICE);
-    int k = 0;
-    for (int i = 0; i < MBT_MAXF; i++) {
-        mbt_foe_t *f = &b->f[i];
-        if (!foe_alive(f)) continue;
-        if (gather && small(f)) f->x = clampf(h->x + h->face * (24 + 10 * k++), L_EDGE, R_EDGE);   // 磁铁:全吸过来
-        if (c.kind == CINE_ULT) {
-            int n = c.form == FORM_NORMAL ? 4 + c.lv * 2 : c.form == FORM_VOLT ? c.lv + 1 : c.form == FORM_ROCKET ? c.lv * 3
-                  : c.form == FORM_SPRING ? 3 : c.form == FORM_MAGNET ? 2 : 1;
-            if (c.form == FORM_NORMAL && fabsf(f->x - h->x) >= 70 + c.lv * 30) continue;   // 百裂拳打不到远处
-            int brk = ULT_BREAK[c.lv] + (c.form == FORM_MAGNET);
-            if (f->armor && brk) {
-                f->armor = (uint8_t)(f->armor > brk ? f->armor - brk : 0);
-                say(b, f->armor ? SAY_ARMOR_CRACK : SAY_ARMOR_BREAK, 0, 0);
-            }
-            for (int j = 0; j < n; j++)
-                hit(b, c.p, i, (float)ULT_DMG[c.lv] * um / n, 24 / n,
-                    HIT_FLAT | (j == n - 1 ? HIT_BIG | (bounce ? HIT_KNOCK : 0) : 0));
-            if (freeze && f->hp > 0) f->freeze_t = 1500 + c.lv * 1000;
-        } else {
-            float total = (c.kind == CINE_SUPER ? SUPER_DMG * (c.low ? 2 : 1) : COMBO_DMG + 30 * (c.bars > 2 ? c.bars - 2 : 0)) * um;
-            f->armor = 0;
-            for (int j = 0; j < 6; j++) hit(b, c.p, i, total / 6, 0, HIT_FLAT | (j == 5 ? HIT_BIG : 0));
-            if (f->hp > 0 && !is_coil(f)) {
-                f->stun_g = 0; f->stun_t = def(f)->boss ? 3000 : 4000; f->st = FS_STUN; f->atk = 0; f->y = 0;
-                if (has_guard(f)) f->guard_t = 4000;
-            }
-            if (freeze && f->hp > 0) f->freeze_t = 2000;
-        }
-    }
     if (c.kind == CINE_SUPER && c.low) say(b, SAY_LOW, c.p, 0);
     if (c.kind == CINE_COMBO) say(b, SAY_COMBO, c.p, 0);
-    ev(b, BE_BOOM, (uint8_t)c.p, c.kind, 0, h->x, 0);
+    ev(b, BE_BOOM, (uint8_t)c.p, c.kind, 0, b->h[c.p].x, 0);
     for (int p = 0; p < b->nh; p++) if (b->h[p].st == HS_ULT) set_st(&b->h[p], HS_IDLE);
+}
+
+static void cine_step(morph_battle_t *b) {
+    mbt_cine_t *c = &b->cine;
+    int32_t t0 = c->t;
+    c->t += MBT_STEP;
+    cine_gather(b);
+    cine_move(b, c->p, c->form, false);
+    if (c->kind == CINE_COMBO) cine_move(b, c->q, c->form2, true);
+    for (int k = 0; k < c->n; k++)
+        for (int j = 0; j < c->hits; j++) {
+            int32_t at = morph_mbt_cine_hit0(c, k) + j * c->sub;
+            if (at > t0 && at <= c->t) cine_hit(b, k, j);
+        }
+    if (c->t >= c->end) cine_end(b);
 }
 
 static void step_shots(morph_battle_t *b, float fdt, int32_t fms) {
@@ -1010,11 +1093,7 @@ static void step(morph_battle_t *b) {
     b->now += MBT_STEP;
     b->shake_t = dec(b->shake_t);
     b->say_cd = dec(b->say_cd);
-    if (b->cine_on) {
-        b->cine.t += MBT_STEP;
-        if (b->cine.t > (b->cine.kind == CINE_ULT ? 1300 : 2200)) boom(b);
-        return;
-    }
+    if (b->cine_on) { cine_step(b); return; }
     if (b->stop_t > 0) { b->stop_t = dec(b->stop_t); return; }   // 打中顿一下
     b->combo_t = dec(b->combo_t);
     if (!b->combo_t) b->combo = 0;

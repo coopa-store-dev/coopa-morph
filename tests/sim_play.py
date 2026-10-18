@@ -2,7 +2,7 @@
 """桌面模拟器(外壳的 tools/sim,step 时钟)装上库巴变变变,按真人手速一个人打一关,按键全走真的按键组件。
 首页 ● → 营地;--chapter N(1–4)时先 BOS1 四关全开、光标挪到「选关」换到第 N 关、再回「出发」;● 出发。
 地图上分叉就随便选(--boss:第一次停下就 BOS4 跳到 Boss 前一排),战斗里每 250–450 ms 按一下(1/5 是按住)。
-截图:首页、营地、地图、分叉、战斗、大招特写(BOS2 给满能量再按 ▲)、超必杀(▼▲)、Boss、结果、回营地。
+截图:首页、营地、地图、分叉、战斗、大招(BOS2 给满能量再按 ▲,隔 250 ms 一张)、超必杀(▼▲)、Boss、结果、回营地。
   tests/sim_play.py --shell 外壳仓库目录 --fonts 字库目录 --catalog 目录.toml --out 截图目录 [--minutes 25] [--chapter 2] [--boss]
 字库:coopa _fonts --out DIR;目录:tests/make_catalog.py SHELL OUT.toml。"""
 import argparse
@@ -139,14 +139,13 @@ def main():
                 continue
             # 战斗
             shot("battle" if s["boss"] == 0 else "boss")
-            if s["cine"]:
-                shot({1: "cine-ult", 2: "cine-super", 3: "cine-combo"}[s["cine"]])
             if battles == 2 and not did_ult and s["foes"]:
                 c.ok("serial BOS2")
                 c.ok("wait 100")
                 c.ok("press up")
-                c.ok("wait 400")
-                shot("cine-ult")
+                for i in range(9):   # 大招在场上一下一下打:隔 250 ms 拍一张
+                    c.ok("wait 250")
+                    shot(f"ult-{i}")
                 did_ult = True
             elif (battles == 3 or (a.boss and s["boss"])) and not did_super and s["foes"]:
                 c.ok("serial BOS2")
@@ -154,10 +153,11 @@ def main():
                 c.ok("press down")
                 c.ok("wait 120")
                 c.ok("press up")
-                c.ok("wait 600")
-                shot("cine-super")
+                for i in range(12):
+                    c.ok("wait 250")
+                    shot(f"super-{i}")
                 did_super = True
-                c.ok("wait 2400")
+                c.ok("wait 600")
                 shot("boss-after-super")
             k = rng.choice(["up", "ok", "down", "ok", "ok"])
             if k != "up" and rng.random() < 0.2:

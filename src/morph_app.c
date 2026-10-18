@@ -4,7 +4,7 @@
 // (联机时交给 morph_net,晚几步两边一起生效;▼ ● 的长按也交);联机断了在等队友时 ● 回首页。
 // 存档:saves 分区 "morph"/"save"(开到第几关、打通过哪关、升级、零件、第一次变身 / 合体),一变就存。
 // 调试通道(devlink BOS1/2/3/4 → admin 'a' 'b' 'c' 'd',只在前台时认):'a' 一个人进营地(已经在一个人的营地里:
-// 四关全开 + 零件 +50,会存档)、'b' 自己能量加满、'c' 这场的怪全打到剩 1 血、'd' 直接走到 Boss 前一排(模拟器 / 真卡自测用)。
+// 四关全开 + 零件 +50,会存档)、'b' 自己能量加满(战斗里站着时顺便换下一个变身)、'c' 这场的怪全打到剩 1 血、'd' 直接走到 Boss 前一排(模拟器 / 真卡自测用)。
 #include <stdio.h>
 #include <string.h>
 
@@ -362,7 +362,17 @@ static kit_admin_t morph_admin(int cmd, bool active) {
                 start_solo();
             }
             break;
-        case 'b': if (s_page == PG_RUN && !s_link) { s_run.carry[0].en = MBT_EN_MAX; s_run.bt.h[0].en = MBT_EN_MAX; } break;
+        case 'b':
+            if (s_page == PG_RUN && !s_link) {
+                s_run.carry[0].en = MBT_EN_MAX;
+                mbt_hero_t *h = &s_run.bt.h[0];
+                h->en = MBT_EN_MAX;
+                if (s_run.phase == RUN_BATTLE && !s_run.bt.cine_on && (h->st == HS_IDLE || h->st == HS_WALK)) {   // 换下一个变身(看变身那一下)
+                    h->form = (uint8_t)((h->form + 1) % FORM_COUNT);
+                    h->st = HS_MORPH; h->t = 0; h->inv = 5000;   // 自测时别被打掉
+                }
+            }
+            break;
         case 'c':
             if (s_page == PG_RUN && !s_link && s_run.phase == RUN_BATTLE)
                 for (int i = 0; i < MBT_MAXF; i++) if (s_run.bt.f[i].used && s_run.bt.f[i].hp > 0) s_run.bt.f[i].hp = 1;

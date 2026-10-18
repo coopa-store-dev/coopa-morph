@@ -1,6 +1,6 @@
 id = "morph"
 name = "库巴变变变"
-version = "1.0.0"
+version = "1.1.0"
 sdk = 5
 kit_api = 2
 app = "morph_app"

@@ -249,6 +249,38 @@ static void t_reflect(void) {
     assert(B.h[0].hp == 100 && f->hp < hp);
 }
 
+// 翻滚躲远招:前面飞来的雪球往后滚也躲得开(以前滚完它追上来又打一下);从背后来的滚过去也不挨;不躲照样挨
+static void t_dodge_shot(void) {
+    static const float FROM[3] = { 125, 75, 125 };
+    for (int k = 0; k < 3; k++) {
+        one(ET_SNOW, 1, 0, 0);
+        B.f[0].freeze_t = 999999; B.f[0].x = 200;
+        B.h[0].x = 100; B.h[0].face = 1; B.h[0].inv = 0;
+        B.fshot[0] = (mbt_fshot_t){ .used = true, .kind = 0, .by = -1, .x = FROM[k], .vx = FROM[k] > 100 ? -110 : 110,
+                                    .t = 3000, .dmg = 10 };
+        if (k < 2) morph_mbt_input(&B, 0, MBT_DOWN, false);
+        tick(2000);
+        assert(k < 2 ? B.h[0].hp == 100 : B.h[0].hp < 100);
+    }
+}
+
+// ▼ ● 小招:点完 ▼ 慢一点按 ●、按住 ▼(举起盾)再按 ● 都要出;中间按了别的键就不算
+static void t_skill_timing(void) {
+    one(ET_CLOCK, 1, 0, 0);
+    B.f[0].freeze_t = 999999;
+    B.h[0].x = B.f[0].x - 30;
+    morph_mbt_input(&B, 0, MBT_DOWN, false); tick(450); morph_mbt_input(&B, 0, MBT_OK, false);
+    assert(B.h[0].st == HS_SKILL);
+    tick(1500);
+    morph_mbt_input(&B, 0, MBT_DOWN, false); tick(500); morph_mbt_input(&B, 0, MBT_DOWN, true); tick(400);
+    morph_mbt_input(&B, 0, MBT_OK, false);
+    assert(B.h[0].st == HS_SKILL);
+    tick(1500);
+    morph_mbt_input(&B, 0, MBT_DOWN, false); tick(360); morph_mbt_input(&B, 0, MBT_UP, false); tick(50);
+    morph_mbt_input(&B, 0, MBT_OK, false);
+    assert(B.h[0].st == HS_ATK);
+}
+
 // 营地:升级花零件、两个人都按出发才走;打通一关开下一关
 static void t_hub(void) {
     static morph_run_t r;
@@ -289,6 +321,8 @@ int main(void) {
     t_coils();
     t_trap();
     t_reflect();
+    t_dodge_shot();
+    t_skill_timing();
     t_hub();
     static const int LV[MR_CHAPTERS] = { 0, 1, 2, 3 };   // 打到这关时大概升到几级
     for (int good = 0; good <= 1; good++)

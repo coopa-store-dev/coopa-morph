@@ -75,6 +75,7 @@ typedef struct {
     bool hit_done, want_shield;
     int32_t inv, shield_t, shield_age, skill_cd, flash;
     int32_t last_down, roll_start;   // 战斗时钟(毫秒)
+    bool down_last;                  // 上一个键是 ▼(▼ ● 小招、▼ ▲ 超必杀)
     bool pend; int32_t pend_t; int16_t pend_en;   // 等队友击掌
     int8_t what_kind, what_idx;      // 吞 / 拉 / 追的对象:1 怪、2 能力星、3 队友
     int32_t trap_t; int8_t trap_hp;  // 冻在冰块里:还剩多久、还要敲几下
@@ -99,7 +100,7 @@ typedef struct {
 } mbt_foe_t;
 
 typedef struct { bool used; uint8_t form; float x, vx; int32_t t; int8_t by; } mbt_shot_t;   // 人放的(冰球、火箭)
-typedef struct { bool used, refl, big; uint8_t kind; int8_t by; float x, vx; int32_t t; int16_t dmg; } mbt_fshot_t;   // 怪扔的(kind 0 雪球、1 火箭;refl = 被弹反回去了,by = 谁弹的)
+typedef struct { bool used, refl, big; uint8_t kind; int8_t by; uint8_t miss; float x, vx; int32_t t; int16_t dmg; } mbt_fshot_t;   // 怪扔的(kind 0 雪球、1 火箭;refl = 被弹反回去了,by = 谁弹的;miss 第 p 位 = 被 p 滚开了,穿过他不打)
 typedef struct { bool used; float x, y, vx, vy; int32_t t; uint8_t form; } mbt_star_t;
 // 大招 / 超必杀 / 合体:在场上一下一下打出来(怪全定住,只有放招的人在动)。时间线(毫秒,t 从 0 走到 end):
 //   0..intro 亮招式名(磁铁把小怪吸过来);目标 k 第一下打中在 hit0(k) = intro + lead + k * step,之后每 sub 一下,共 hits 下;

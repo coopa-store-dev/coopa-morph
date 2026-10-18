@@ -7,7 +7,7 @@
 #define L_EDGE 8
 #define R_EDGE 232
 #define DT 0.01f
-#define DOWN_COMBO_MS 350   // ▼ 后多久内按 ● / ▲ 算技能 / 超必杀
+#define DOWN_COMBO_MS 500   // ▼ 后多久内按 ● / ▲ 算技能 / 超必杀(▼ 滚着、盾举着时也算)
 #define PEND_MS 800         // 等队友击掌
 #define RELAY_MS 1000       // 队友打飞的怪多久内能接力
 #define AGGRO_MS 5000       // 冰盾 Boss 盯一个人多久转身
@@ -355,6 +355,17 @@ static int relay_target(morph_battle_t *b, int p) {
     return -1;
 }
 
+// 翻滚躲远招:往后滚和怪扔来的弹同一个方向,滚完它还会追上来,所以朝这个人飞、0.4 秒内会到的弹算躲开了,穿过他不打
+static void dodge_shots(morph_battle_t *b, int p) {
+    const mbt_hero_t *h = &b->h[p];
+    for (int i = 0; i < MBT_MAXFSHOT; i++) {
+        mbt_fshot_t *s = &b->fshot[i];
+        float d = h->x - s->x;
+        if (!s->used || s->refl || d * s->vx <= 0) continue;
+        if (fabsf(d) - (s->big ? 12 : 8) < fabsf(s->vx) * 0.4f) s->miss |= (uint8_t)(1 << p);
+    }
+}
+
 void morph_mbt_input(morph_battle_t *b, int p, uint8_t key, bool lp) {
     if (p < 0 || p >= b->nh || b->result || b->cine_on) return;
     mbt_hero_t *h = &b->h[p], *q = mate(b, p);
@@ -363,10 +374,14 @@ void morph_mbt_input(morph_battle_t *b, int p, uint8_t key, bool lp) {
         if (key == MBT_OK) h->trap_hp--;
         return;
     }
+    // ▼ 后接着按的 ● / ▲:▼ 是上一个键,而且没过多久、或者这个 ▼ 的翻滚 / 盾还在(按住 ▼ 再按的,● 要等 ▼ 松开才进来)
+    bool after_down = h->down_last && (b->now - h->last_down < DOWN_COMBO_MS || h->st == HS_ROLL || h->st == HS_SHIELD);
+    h->down_last = key == MBT_DOWN;
     if (key == MBT_DOWN && !lp) {
         h->last_down = b->now;
         if (!can_act(h)) return;
         face_foe(b, h); set_st(h, HS_ROLL); h->inv = 280; h->roll_start = b->now;
+        dodge_shots(b, p);
         ev(b, BE_WHOOSH, (uint8_t)p, 0, 0, h->x, 0);
         return;
     }
@@ -377,7 +392,7 @@ void morph_mbt_input(morph_battle_t *b, int p, uint8_t key, bool lp) {
     }
     if (key == MBT_OK && !lp) {
         if (!can_act(h) && h->st != HS_ROLL) return;
-        if (b->now - h->last_down < DOWN_COMBO_MS && h->skill_cd <= 0) { skill(b, p); return; }
+        if (after_down && h->skill_cd <= 0) { skill(b, p); return; }
         if (h->st == HS_ROLL) return;
         int ri = relay_target(b, p);
         if (ri >= 0) {
@@ -408,7 +423,7 @@ void morph_mbt_input(morph_battle_t *b, int p, uint8_t key, bool lp) {
     }
     if (key == MBT_UP) {
         if (!(h->st == HS_IDLE || h->st == HS_WALK || h->st == HS_ATK || h->st == HS_SHIELD || h->st == HS_ROLL)) return;
-        if (b->now - h->last_down < DOWN_COMBO_MS && h->en >= MBT_EN_MAX) {   // 超必杀
+        if (after_down && h->en >= MBT_EN_MAX) {   // 超必杀
             h->en = 0; h->pend = false;
             h->inv = 3000; set_st(h, HS_ULT);
             cine_begin(b, (mbt_cine_t){ .kind = CINE_SUPER, .form = h->form, .lv = 3, .p = (int8_t)p, .q = -1,
@@ -1066,8 +1081,9 @@ static void step_shots(morph_battle_t *b, float fdt, int32_t fms) {
         if (!s->refl) {
             for (int p = 0; p < b->nh; p++) {
                 mbt_hero_t *h = &b->h[p];
-                if (!standing(h) || fabsf(h->x - s->x) >= w) continue;
+                if (!standing(h) || (s->miss >> p & 1) || fabsf(h->x - s->x) >= w) continue;
                 int r = hurt_hero(b, p, s->x - s->vx, s->dmg);
+                if ((r == HR_MISS || r == HR_PERFECT) && h->st == HS_ROLL) s->miss |= (uint8_t)(1 << p);   // 滚着穿过去了
                 if (r == HR_PARRY) {   // 弹回去
                     s->refl = true; s->vx = -s->vx * 1.6f; s->by = (int8_t)p; s->t = 2000;
                     say(b, SAY_REFLECT, p, 0);

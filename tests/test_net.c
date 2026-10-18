@@ -118,7 +118,13 @@ int main(void) {
     morph_mn_init(&B, psend, &ba, 2, &PB);
     morph_mn_connected(&A, true); morph_mn_connected(&B, false);
     run_ms(1000, false, &x, &y);
-    assert(A.phase == MN_BAD);
+    assert(A.phase == MN_BAD && !A.bad_ver);
+    // 对方是规则不一样的旧版(握手的协议号不同)→ MN_BAD,说是版本不一样;之后对方再发开局也不开
+    morph_mn_init(&A, psend, &ab, 1, &PA);
+    morph_mn_connected(&A, false);
+    uint8_t old_hello[2] = { 'H', MN_PROTO - 1 }, prof[9] = { 'U' }, go[6] = { 'S', 1, 2, 3, 4, 0 };
+    morph_mn_on_msg(&A, old_hello, 2); morph_mn_on_msg(&A, prof, 9); morph_mn_on_msg(&A, go, 6);
+    assert(A.phase == MN_BAD && A.bad_ver);
     // 乱消息不崩
     for (int i = 0; i < 20000; i++) {
         uint8_t m[MN_MSG_MAX];

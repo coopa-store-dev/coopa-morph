@@ -8,6 +8,9 @@ TESTS := test_run test_net test_art
 
 all: $(addprefix $(OUT)/,$(TESTS))
 	@for t in $(TESTS); do $(OUT)/$$t || exit 1; done
+	@# 标题画面上的版本号要和 coopa.toml 的一样
+	@v=$$(sed -n 's/^version = "\(.*\)"/\1/p' ../coopa.toml); grep -q "TX_VERSION \"v$$v\"" ../src/morph_texts.h \
+		|| { echo "morph_texts.h 的 TX_VERSION 不是 v$$v(coopa.toml)"; exit 1; }
 	@echo "host tests: PASS"
 
 $(OUT):

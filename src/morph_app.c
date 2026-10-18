@@ -150,6 +150,7 @@ static void show_title(void) {
         lv_obj_t *p = uk_pill(scr, UK_F24, s_sel == i ? UK_RED : UK_LINE, UK_WHITE, items[i]);
         lv_obj_align(p, LV_ALIGN_TOP_MID, 0, 170 + i * 44);
     }
+    lv_obj_align(uk_text(scr, UK_F12, UK_INK, TX_VERSION), LV_ALIGN_BOTTOM_MID, 0, -2);
     uk_screen_swap(scr);
 }
 
@@ -252,7 +253,8 @@ static void link_pages(void) {
             break;
         case MN_BAD:
             s_page = PG_LINK;
-            note(TX_BAD, UK_RED, TX_BAD2, "", TX_HOME_HINT);
+            if (s_net.bad_ver) note(TX_BAD_VER, UK_RED, TX_BAD_VER2, TX_BAD_VER3, TX_HOME_HINT);
+            else note(TX_BAD, UK_RED, TX_BAD2, "", TX_HOME_HINT);
             break;
         default:   // 在打(或者断线等队友)
             if (s_page != PG_RUN) { s_page = PG_RUN; s_shown = -1; sfx_play(SFX_START); }
@@ -339,7 +341,11 @@ static void morph_frame(uint32_t dt) {
     morph_gfx_update(r, dt);
 }
 
-static unsigned morph_busy(void) { return s_page == PG_RUN && run()->phase != RUN_HUB ? KIT_BUSY_TIMING : 0; }
+// 只有打着、走着才不让熄屏;营地、岔路口、休息 / 宝箱页、结算页都在等人按,放着不管就该熄屏(以前一趟没回营地就一直亮着)
+static unsigned morph_busy(void) {
+    const morph_run_t *r = run();
+    return s_page == PG_RUN && (r->phase == RUN_BATTLE || (r->phase == RUN_MAP && r->walking)) ? KIT_BUSY_TIMING : 0;
+}
 
 static bool morph_won(void) { return (s_save.prof.cleared >> (MR_CHAPTERS - 1)) & 1; }
 

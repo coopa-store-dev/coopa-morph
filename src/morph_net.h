@@ -28,7 +28,7 @@
 
 #include "morph_run.h"
 
-#define MN_PROTO 2
+#define MN_PROTO 3            // 握手的协议号:两边规则(morph_battle / morph_run)不一样就连不起来,改了规则就加一(1.1 起 3)
 #define MN_MSG_MAX 16
 #define MN_DELAY 12          // 开头还没量到来回时,自己的键晚几步生效(10 ms 一步)
 #define MN_HIST 128          // 自己的键记多少个(断线补发)
@@ -45,6 +45,7 @@ typedef struct {
     bool initiator, up, peer_hello, peer_prof_ok;
     mr_profile_t mine, peer_prof;  // 自己卡上的存档、对方的(开一趟时按角色放进 run.prof[])
     uint8_t phase;              // mn_phase_t
+    bool bad_ver;               // MN_BAD 是因为对方的游戏版本不一样(协议号不同)
     int8_t me, peer_role;       // 自己 / 对方选的角色,-1 = 还没选
     morph_run_t run;
     uint32_t step;              // 已经算到第几步

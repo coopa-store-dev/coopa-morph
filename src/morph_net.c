@@ -121,7 +121,7 @@ void morph_mn_on_msg(morph_net_t *n, const uint8_t *m, size_t len) {
     n->rx++;
     switch (m[0]) {
         case 'H':
-            if (len < 2 || m[1] != MN_PROTO) { n->phase = MN_BAD; return; }
+            if (len < 2 || m[1] != MN_PROTO) { n->phase = MN_BAD; n->bad_ver = true; return; }
             n->peer_hello = true;
             break;
         case 'U':

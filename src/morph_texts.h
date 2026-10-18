@@ -6,6 +6,7 @@
 #define TX_SOLO "一个人玩"
 #define TX_LINK "两人联机"
 #define TX_BACK "回菜单"
+#define TX_VERSION "v1.1.1"   // 标题画面最底下;要和 coopa.toml 的 version 一样(make -C tests 查)
 
 // 找队友(同库巴格斗)
 #define TX_SEARCH "找队友……"
@@ -22,6 +23,9 @@
 #define TX_PICK_ME "你是%s"
 #define TX_BAD "队友那边重新开了"
 #define TX_BAD2 "回首页再连一次"
+#define TX_BAD_VER "版本不一样"
+#define TX_BAD_VER2 "两张卡的游戏版本不一样"
+#define TX_BAD_VER3 "都去「设置」里检查更新"
 
 // 人、变身、招式
 #define TX_KID "库巴"
